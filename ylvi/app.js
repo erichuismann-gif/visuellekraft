@@ -1,21 +1,26 @@
 'use strict';
 
 /* =========================================================
-   Ylvis Klo-Plan – gemeinsame Version
-   Einträge liegen in einer Supabase-Datenbank, Fotos im
-   Supabase-Speicher. Alle angemeldeten Personen sehen dieselben Daten.
+   Ylvis Klo-Plan
+   Protokoll der Pipi-Besuche (Blasenprobleme) und der Medikation.
+   Ohne config.js: lokal auf dem Gerät (IndexedDB).
+   Mit config.js: gemeinsame Supabase-Datenbank für mehrere Personen.
    ========================================================= */
 
-const TYPES = {
-  pipi:   { label: 'Pipi',   icon: '💧' },
-  kacka:  { label: 'Kacka',  icon: '💩' },
-  beides: { label: 'Beides', icon: '💧💩' },
-};
 const TABLE = 'entries';
+const MED_TABLE = 'medications';
 const BUCKET = 'photos';
 const PHOTO_MAX_SIDE = 1600;
 const PHOTO_QUALITY = 0.82;
 const SIGNED_URL_SECONDS = 60 * 60 * 6;
+
+// Bekannte Medikation, die beim ersten Start einmalig eingetragen wird
+// (feste IDs, damit nichts doppelt entsteht, wenn mehrere Geräte starten).
+const MED_SEED = [
+  { id: 'seed-fluoxetin-5', name: 'Fluoxetin', dose: 5, start: null, note: 'Wegen Rolling Skin Syndrome' },
+  { id: 'seed-fluoxetin-2-5', name: 'Fluoxetin', dose: 2.5, start: '2026-11-17', note: 'Herunterfahren auf Empfehlung der Tierärztin (Verdacht: Blasenprobleme durch Fluoxetin)' },
+];
+const MED_SEED_FLAG = 'ylvi-med-seeded';
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (sel) => document.querySelector(sel);
@@ -35,6 +40,11 @@ function fromLocalInput(str) {
   const [h, min] = time.split(':').map(Number);
   return new Date(y, m - 1, d, h, min);
 }
+const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function fromDateInput(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
 function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function startOfWeek(d) {
   const x = startOfDay(d);
@@ -46,6 +56,8 @@ function dayKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d
 const fmtTime = (d) => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
 const fmtDayLong = (d) => d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
 const fmtDayShort = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const fmtDate = (d) => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const fmtNum = (n, digits = 1) => n.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 function dayTitle(d) {
   const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
@@ -62,6 +74,11 @@ function ago(ms) {
   const days = Math.floor(h / 24);
   return `vor ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
 }
+function fmtDuration(ms) {
+  const h = Math.floor(ms / 3600000);
+  const min = Math.round((ms % 3600000) / 60000);
+  return min ? `${h} Std. ${min} Min.` : `${h} Std.`;
+}
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -74,14 +91,6 @@ function toast(msg) {
 }
 function showError(el, msg) { el.textContent = msg || ''; el.hidden = !msg; }
 function notice(msg) { showError($('#notice'), msg); }
-function countTypes(list) {
-  const c = { pipi: 0, kacka: 0 };
-  for (const e of list) {
-    if (e.type !== 'kacka') c.pipi++;
-    if (e.type !== 'pipi') c.kacka++;
-  }
-  return c;
-}
 function friendlyError(err) {
   const msg = (err && (err.message || err.error_description || String(err))) || '';
   if (/Failed to fetch|NetworkError|network/i.test(msg)) return 'Keine Verbindung. Prüfe das Internet und versuche es erneut.';
@@ -90,6 +99,7 @@ function friendlyError(err) {
   if (/JWT|expired|not authenticated|row-level security|permission/i.test(msg)) return 'Keine Berechtigung. Melde dich ab und wieder an.';
   if (/Payload too large|exceeded the maximum/i.test(msg)) return 'Das Foto ist zu groß.';
   if (/Password should be/i.test(msg)) return 'Das Passwort ist zu kurz oder zu einfach.';
+  if (/medications/i.test(msg) && /does not exist|schema cache/i.test(msg)) return 'Die Medikations-Tabelle fehlt. Führe supabase-setup.sql noch einmal im SQL Editor aus.';
   return 'Das hat nicht geklappt: ' + msg;
 }
 
@@ -101,17 +111,19 @@ function showScreen(name) {
   if (name !== 'app') $('#menu').hidden = true;
 }
 
-/* ---------- Lokaler Speicher (IndexedDB) ----------
-   Wird genutzt, solange keine Datenbank eingerichtet ist. */
-const localDb = (() => {
+/* ---------- Lokaler Speicher (IndexedDB) ---------- */
+const idb = (() => {
   let dbPromise;
   function open() {
     if (!dbPromise) {
       dbPromise = new Promise((resolve, reject) => {
-        const req = indexedDB.open('ylvi-klo', 1);
+        const req = indexedDB.open('ylvi-klo', 2);
         req.onupgradeneeded = () => {
-          const store = req.result.createObjectStore('entries', { keyPath: 'id' });
-          store.createIndex('time', 'time');
+          const db = req.result;
+          if (!db.objectStoreNames.contains('entries')) {
+            db.createObjectStore('entries', { keyPath: 'id' }).createIndex('time', 'time');
+          }
+          if (!db.objectStoreNames.contains('meds')) db.createObjectStore('meds', { keyPath: 'id' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -119,44 +131,51 @@ const localDb = (() => {
     }
     return dbPromise;
   }
-  async function tx(mode, fn) {
-    const d = await open();
-    return new Promise((resolve, reject) => {
-      const t = d.transaction('entries', mode);
-      const req = fn(t.objectStore('entries'));
-      t.oncomplete = () => resolve(req ? req.result : undefined);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
-    });
+  function store(name) {
+    async function tx(mode, fn) {
+      const d = await open();
+      return new Promise((resolve, reject) => {
+        const t = d.transaction(name, mode);
+        const req = fn(t.objectStore(name));
+        t.oncomplete = () => resolve(req ? req.result : undefined);
+        t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error);
+      });
+    }
+    return {
+      all: () => tx('readonly', (s) => s.getAll()),
+      get: (id) => tx('readonly', (s) => s.get(id)),
+      put: (rec) => tx('readwrite', (s) => s.put(rec)),
+      remove: (id) => tx('readwrite', (s) => s.delete(id)),
+    };
   }
-  return {
-    all: () => tx('readonly', (s) => s.getAll()),
-    get: (id) => tx('readonly', (s) => s.get(id)),
-    put: (rec) => tx('readwrite', (s) => s.put(rec)),
-    remove: (id) => tx('readwrite', (s) => s.delete(id)),
-  };
+  return { entries: store('entries'), meds: store('meds') };
 })();
+const localDb = idb.entries;
+const localMeds = idb.meds;
 const localPhotoUrls = new Map(); // 'local:<id>' -> Objekt-URL
 
 /* ---------- Verbindung ---------- */
 const cfg = window.YLVI_CONFIG || {};
 let mode = 'cloud';  // 'local' = nur auf diesem Gerät, 'cloud' = gemeinsame Datenbank
 let sb = null;
-let me = null;       // angemeldete Person
+let me = null;
 let channel = null;
 
 /* ---------- Zustand ---------- */
 const state = {
-  entries: [],
+  entries: [],   // nur Pipi (ältere Kacka-Einträge werden ausgeblendet)
+  meds: [],      // Medikations-Änderungen
   loaded: false,
   view: 'list',
   weekStart: startOfWeek(new Date()),
 };
-const signedUrls = new Map(); // Foto-Pfad -> { url, expires }
+const signedUrls = new Map();
 
 function myName() {
   return (me && me.user_metadata && me.user_metadata.name) || (me && me.email ? me.email.split('@')[0] : '');
 }
+const isUrine = (type) => type !== 'kacka'; // 'pipi' und früheres 'beides'
 
 /* ---------- Daten laden ---------- */
 let loading = null;
@@ -166,30 +185,12 @@ async function loadEntries() {
   if (loading) { reloadAgain = true; return loading; }
   loading = (async () => {
     if (mode === 'local') {
-      await loadLocalEntries();
-      state.loaded = true;
-      render();
-      return;
+      await loadLocalData();
+    } else {
+      await loadCloudData();
     }
-    const { data, error } = await sb
-      .from(TABLE)
-      .select('id,time,type,note,photo_path,author,created_at')
-      .order('time', { ascending: false })
-      .limit(5000);
-    if (error) throw error;
-    state.entries = (data || [])
-      .filter((r) => TYPES[r.type])
-      .map((r) => ({
-        id: r.id,
-        time: Date.parse(r.time),
-        type: r.type,
-        note: r.note || '',
-        photo: r.photo_path || null,
-        author: r.author || '',
-      }));
-    await refreshSignedUrls();
+    await seedMedsOnce();
     state.loaded = true;
-    notice('');
     render();
   })();
   try {
@@ -204,12 +205,45 @@ async function loadEntries() {
   }
 }
 
-async function loadLocalEntries() {
-  const rows = await localDb.all();
+async function loadCloudData() {
+  const [entriesRes, medsRes] = await Promise.all([
+    sb.from(TABLE).select('id,time,type,note,photo_path,author,created_at').order('time', { ascending: false }).limit(5000),
+    sb.from(MED_TABLE).select('id,name,dose_mg,start_date,note,author,created_at'),
+  ]);
+  if (entriesRes.error) throw entriesRes.error;
+  state.entries = (entriesRes.data || [])
+    .filter((r) => isUrine(r.type))
+    .map((r) => ({
+      id: r.id,
+      time: Date.parse(r.time),
+      type: 'pipi',
+      note: r.note || '',
+      photo: r.photo_path || null,
+      author: r.author || '',
+    }));
+  if (medsRes.error) {
+    notice(friendlyError(medsRes.error));
+  } else {
+    notice('');
+    state.meds = (medsRes.data || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      dose: Number(r.dose_mg),
+      start: r.start_date || null,
+      note: r.note || '',
+      author: r.author || '',
+      created: Date.parse(r.created_at) || 0,
+    }));
+  }
+  await refreshSignedUrls();
+}
+
+async function loadLocalData() {
+  const [rows, meds] = await Promise.all([localDb.all(), localMeds.all()]);
   for (const u of localPhotoUrls.values()) URL.revokeObjectURL(u);
   localPhotoUrls.clear();
   state.entries = rows
-    .filter((r) => TYPES[r.type] && typeof r.time === 'number')
+    .filter((r) => isUrine(r.type) && typeof r.time === 'number')
     .sort((a, b) => b.time - a.time)
     .map((r) => {
       let photo = null;
@@ -217,8 +251,32 @@ async function loadLocalEntries() {
         photo = 'local:' + r.id;
         localPhotoUrls.set(photo, URL.createObjectURL(r.photo));
       }
-      return { id: r.id, time: r.time, type: r.type, note: r.note || '', photo, author: '' };
+      return { id: r.id, time: r.time, type: 'pipi', note: r.note || '', photo, author: '' };
     });
+  state.meds = meds.map((m) => ({ ...m, created: m.created || 0 }));
+}
+
+async function seedMedsOnce() {
+  let flag = null;
+  try { flag = localStorage.getItem(MED_SEED_FLAG); } catch { /* egal */ }
+  if (flag) return;
+  if (!state.meds.length) {
+    const now = Date.now();
+    const recs = MED_SEED.map((s, i) => ({ ...s, created: now + i }));
+    if (mode === 'local') {
+      for (const r of recs) await localMeds.put(r);
+      state.meds = recs;
+    } else {
+      const { error } = await sb.from(MED_TABLE).upsert(recs.map(medToRow));
+      if (error) return; // z. B. Tabelle fehlt – später erneut versuchen
+      state.meds = recs;
+    }
+  }
+  try { localStorage.setItem(MED_SEED_FLAG, '1'); } catch { /* egal */ }
+}
+
+function medToRow(m) {
+  return { id: m.id, name: m.name, dose_mg: m.dose, start_date: m.start, note: m.note || '', author: m.author || myName() };
 }
 
 async function refreshSignedUrls() {
@@ -245,68 +303,96 @@ function scheduleReload() {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(loadEntries, 250);
 }
-
 function subscribeLive() {
   if (channel) return;
   channel = sb
-    .channel('entries-live')
+    .channel('ylvi-live')
     .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: MED_TABLE }, scheduleReload)
     .subscribe();
 }
 function unsubscribeLive() {
   if (channel) { sb.removeChannel(channel); channel = null; }
 }
 
+/* ---------- Medikation: Helfer ---------- */
+const dosesOn = (day) => YlviMeds.doseOn(state.meds, day);
+const doseLabel = (day, long = false) => YlviMeds.label(state.meds, dosesOn(day), { long });
+
+function changeText(change) {
+  // "Fluoxetin: 5 mg → 2,5 mg"
+  const before = change.start
+    ? YlviMeds.doseOn(state.meds.filter((m) => m.name === change.name), addDays(YlviMeds.keyToDate(change.start), -1))[0]
+    : null;
+  const to = YlviMeds.fmtDose(change.dose);
+  return before ? `${change.name}: ${YlviMeds.fmtDose(before.dose)} → ${to}` : `${change.name}: ${to}`;
+}
+
 /* ---------- Darstellung ---------- */
 function render() {
   renderStatus();
-  if (state.view === 'list') renderList(); else renderWeek();
+  if (state.view === 'list') renderList();
+  else if (state.view === 'week') renderWeek();
+  else renderMeds();
 }
 
 function renderStatus() {
   const el = $('#status');
-  if (!me && mode !== 'local') { el.textContent = 'Klo-Tagebuch für Ylvi'; return; }
+  const medEl = $('#medStatus');
+  if (!me && mode !== 'local') { el.textContent = 'Pipi-Protokoll für Ylvi'; medEl.hidden = true; return; }
   if (!state.loaded) { el.textContent = 'Einträge werden geladen…'; return; }
   const now = Date.now();
-  const past = state.entries.filter((e) => e.time <= now);
-  const last = past[0];
-  if (!last) { el.textContent = 'Noch keine Einträge'; return; }
-  const lastKacka = past.find((e) => e.type !== 'pipi');
-  let txt = `Zuletzt ${TYPES[last.type].icon} ${ago(now - last.time)}`;
-  if (lastKacka && lastKacka !== last) txt += ` · 💩 ${ago(now - lastKacka.time)}`;
-  el.textContent = txt;
+  const last = state.entries.find((e) => e.time <= now);
+  el.textContent = last ? `Zuletzt Pipi ${ago(now - last.time)}` : 'Noch keine Einträge';
+  const cur = doseLabel(new Date(), true);
+  medEl.hidden = !cur;
+  medEl.textContent = cur ? `💊 ${cur}` : '';
 }
 
 function renderList() {
-  const t0 = startOfDay(new Date()).getTime();
-  const todays = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000);
-  const c = countTypes(todays);
+  const now = new Date();
+  const t0 = startOfDay(now).getTime();
+  const today = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000).length;
+  const last7 = state.entries.filter((e) => e.time >= t0 - 6 * 86400000 && e.time < t0).length; // 6 volle Tage + heute separat
+  const avg7 = (last7 + today) / 7;
+  const doses = dosesOn(now);
+  const doseVal = doses.length ? YlviMeds.label(state.meds, doses) : '–';
+  const doseSub = doses.length === 1 ? `${doses[0].name}${doses[0].change.start ? ` seit ${fmtDayShort(YlviMeds.keyToDate(doses[0].change.start))}` : ''}` : 'Medikation';
   $('#todaySummary').innerHTML = `
-    <div class="stat"><b>${c.pipi}</b><span>💧 Pipi heute</span></div>
-    <div class="stat"><b>${c.kacka}</b><span>💩 Kacka heute</span></div>
-    <div class="stat"><b>${state.entries.filter((e) => e.photo).length}</b><span>📷 Beweisfotos</span></div>`;
+    <div class="stat"><b>${today}</b><span>💧 Pipi heute</span></div>
+    <div class="stat"><b>${fmtNum(avg7)}</b><span>Ø pro Tag (7 Tage)</span></div>
+    <div class="stat"><b>${esc(doseVal)}</b><span>💊 ${esc(doseSub)}</span></div>`;
 
   const list = $('#list');
-  if (!state.entries.length) {
+  if (!state.entries.length && !state.meds.some((m) => m.start)) {
     list.innerHTML = `<div class="empty-state"><div class="big">🐱</div>
       <p>${state.loaded
-        ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi auf dem Klo war.'
+        ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi Pipi gemacht hat.'
         : 'Einträge werden geladen…'}</p></div>`;
     return;
   }
 
+  // Tage mit Einträgen oder Dosisänderungen
   const groups = new Map();
   for (const e of state.entries) {
     const k = dayKey(new Date(e.time));
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(e);
+    if (!groups.has(k)) groups.set(k, { entries: [], changes: [] });
+    groups.get(k).entries.push(e);
   }
+  for (const m of state.meds) {
+    if (!m.start) continue;
+    if (!groups.has(m.start)) groups.set(m.start, { entries: [], changes: [] });
+    groups.get(m.start).changes.push(m);
+  }
+  const keys = [...groups.keys()].sort().reverse();
+
   let html = '';
-  for (const items of groups.values()) {
-    const gc = countTypes(items);
-    html += `<div class="day-head"><span>${esc(dayTitle(new Date(items[0].time)))}</span><span>💧 ${gc.pipi} · 💩 ${gc.kacka}</span></div>`;
-    for (const e of items) {
-      const t = TYPES[e.type];
+  for (const k of keys) {
+    const g = groups.get(k);
+    const day = YlviMeds.keyToDate(k);
+    const dl = doseLabel(day);
+    html += `<div class="day-head"><span>${esc(dayTitle(day))}</span><span>💧 ${g.entries.length}${dl ? ` · 💊 ${esc(dl)}` : ''}</span></div>`;
+    for (const e of g.entries) {
       const url = photoUrl(e.photo);
       const thumb = url
         ? `<img class="thumb" src="${esc(url)}" alt="Beweisfoto" loading="lazy" data-photo="${esc(e.id)}">`
@@ -317,10 +403,13 @@ function renderList() {
         <div class="entry" role="button" tabindex="0" data-edit="${esc(e.id)}">
           ${thumb}
           <div class="entry-main">
-            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge ${e.type}">${t.icon} ${t.label}</span>${e.author ? `<span class="author">${esc(e.author)}</span>` : ''}</div>
+            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge pipi">💧 Pipi</span>${e.author ? `<span class="author">${esc(e.author)}</span>` : ''}</div>
             <div class="entry-note">${e.note ? esc(e.note) : '&nbsp;'}</div>
           </div>
         </div>`;
+    }
+    for (const m of g.changes) {
+      html += `<button class="med-row" data-med="${esc(m.id)}">💊 ${esc(changeText(m))}${m.note ? `<span>· ${esc(m.note)}</span>` : ''}</button>`;
     }
   }
   list.innerHTML = html;
@@ -338,21 +427,22 @@ function renderWeek() {
     const from = day.getTime();
     const to = addDays(day, 1).getTime();
     const items = state.entries.filter((e) => e.time >= from && e.time < to).sort((a, b) => a.time - b.time);
-    const c = countTypes(items);
+    const dl = doseLabel(day);
+    const changed = YlviMeds.changesOn(state.meds, day).length > 0;
     const dots = items.map((e) => {
       const d = new Date(e.time);
       const pct = ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100;
-      const lbl = `${fmtTime(d)} ${TYPES[e.type].label}`;
-      return `<button class="${e.type}" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
+      const lbl = `${fmtTime(d)} Pipi`;
+      return `<button class="pipi" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
     }).join('');
     const chips = items.map((e) =>
-      `<button class="chip" data-edit="${esc(e.id)}">${TYPES[e.type].icon} ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}</button>`
+      `<button class="chip" data-edit="${esc(e.id)}">💧 ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}${e.note ? ' ✎' : ''}</button>`
     ).join('');
     html += `
       <div class="wday${dayKey(day) === todayKey ? ' is-today' : ''}">
         <div class="wday-head">
-          <strong>${esc(fmtDayShort(day))}</strong>
-          <span class="wday-counts">${items.length ? `💧 ${c.pipi} · 💩 ${c.kacka}` : '–'}</span>
+          <strong>${esc(fmtDayShort(day))}${dl ? `<span class="dose-chip${changed ? ' changed' : ''}" title="${changed ? 'Dosis geändert' : 'Dosis'}">💊 ${esc(dl)}</span>` : ''}</strong>
+          <span class="wday-counts">${items.length ? `💧 ${items.length}` : '–'}</span>
         </div>
         <div class="timeline">${dots}</div>
         <div class="timeline-scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
@@ -360,6 +450,41 @@ function renderWeek() {
       </div>`;
   }
   $('#week').innerHTML = html;
+}
+
+function renderMeds() {
+  const now = new Date();
+  const doses = dosesOn(now);
+  $('#medCurrent').innerHTML = doses.length
+    ? doses.map((d) => `<b>${esc(d.name)} ${esc(YlviMeds.fmtDose(d.dose))}</b><span>${d.change.start ? `seit ${esc(fmtDayLong(YlviMeds.keyToDate(d.change.start)))}` : 'seit Beginn der Aufzeichnung'}</span>`).join('<br>')
+    : '<b>Keine Medikation eingetragen</b><span>Tippe auf „Dosis ändern“, um eine einzutragen.</span>';
+
+  // Vergleich je Dosis, ab dem ersten Eintrag bis heute
+  const cmpEl = $('#medCompare');
+  if (!state.entries.length || !state.meds.length) {
+    cmpEl.innerHTML = '<p class="muted">Sobald Pipi-Einträge und Medikation vorhanden sind, siehst du hier den Vergleich.</p>';
+  } else {
+    const first = startOfDay(new Date(Math.min(...state.entries.map((e) => e.time))));
+    const rows = YlviMeds.compare(state.entries, state.meds, first, addDays(startOfDay(now), 1), Date.now());
+    cmpEl.innerHTML = `<table class="cmp">
+      <thead><tr><th>Dosis</th><th class="num">Tage</th><th class="num">Pipi</th><th class="num">Ø pro Tag</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td><b>${esc(YlviMeds.label(state.meds, r.doses) || 'ohne')}</b><small>${esc(fmtDayShort(r.from))} – ${esc(fmtDayShort(addDays(r.to, -1)))}</small></td>
+        <td class="num">${r.days}</td>
+        <td class="num">${r.count}</td>
+        <td class="num big">${fmtNum(r.avg)}</td>
+      </tr>`).join('')}</tbody></table>
+      <p class="muted small" style="margin-top:6px">Der heutige Tag zählt schon mit, auch wenn er noch nicht vorbei ist.${rows.some((r) => r.longestGap) ? ` Längste Pause: ${rows.map((r) => `${esc(YlviMeds.label(state.meds, r.doses))} ${r.longestGap ? fmtDuration(r.longestGap) : '–'}`).join(' · ')}` : ''}</p>`;
+  }
+
+  // Verlauf (neueste zuerst)
+  const list = YlviMeds.sorted(state.meds).reverse();
+  $('#medList').innerHTML = list.length
+    ? list.map((m) => `<button class="med-item" data-med="${esc(m.id)}">
+        <span class="when">${m.start ? esc(fmtDate(YlviMeds.keyToDate(m.start))) : 'seit Beginn'}</span>
+        <span class="what"><b>${esc(changeText(m))}</b>${m.note ? `<span>${esc(m.note)}</span>` : ''}${m.author ? `<span> · ${esc(m.author)}</span>` : ''}</span>
+      </button>`).join('')
+    : '<p class="muted">Noch keine Einträge.</p>';
 }
 
 /* ---------- Fotos ---------- */
@@ -385,10 +510,10 @@ async function compressImage(file) {
   }
 }
 
-/* ---------- Formular ---------- */
+/* ---------- Formular: Pipi-Eintrag ---------- */
 const form = $('#entryForm');
 const dlg = $('#entryDialog');
-let editing = null;   // Eintrag, der bearbeitet wird (null = neu)
+let editing = null;
 let pendingPhoto;     // undefined = unverändert, null = entfernt, Blob = neu
 let previewUrl = null;
 
@@ -405,11 +530,10 @@ function openForm(entry = null) {
   pendingPhoto = undefined;
   form.reset();
   showError($('#formError'), '');
-  $('#formTitle').textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
+  $('#formTitle').textContent = entry ? 'Pipi bearbeiten' : 'Pipi eintragen';
   $('#deleteBtn').hidden = !entry;
   $('#saveBtn').disabled = false;
   form.time.value = toLocalInput(entry ? new Date(entry.time) : new Date());
-  form.type.value = entry ? entry.type : 'pipi';
   form.note.value = entry?.note || '';
   const meta = $('#entryMeta');
   meta.hidden = !(entry && entry.author);
@@ -458,13 +582,13 @@ form.addEventListener('submit', async (ev) => {
         id,
         created: prev ? prev.created : Date.now(),
         time: fromLocalInput(form.time.value).getTime(),
-        type: form.type.value,
+        type: 'pipi',
         note: form.note.value.trim().slice(0, 500),
         photo,
       });
       const wasNew = !editing;
       closeForm();
-      toast(wasNew ? (photo ? 'Eintrag mit Beweisfoto gespeichert ✓' : 'Eintrag gespeichert ✓') : 'Änderungen gespeichert ✓');
+      toast(wasNew ? (photo ? 'Pipi mit Beweisfoto gespeichert ✓' : 'Pipi gespeichert ✓') : 'Änderungen gespeichert ✓');
       await loadEntries();
     } catch (err) {
       showError($('#formError'), 'Speichern auf dem Handy hat nicht geklappt: ' + (err?.message || err));
@@ -482,10 +606,9 @@ form.addEventListener('submit', async (ev) => {
     } else if (pendingPhoto === null) {
       photoPath = null;
     }
-
     const row = {
       time: fromLocalInput(form.time.value).toISOString(),
-      type: form.type.value,
+      type: 'pipi',
       note: form.note.value.trim().slice(0, 500),
       photo_path: photoPath,
     };
@@ -493,13 +616,10 @@ form.addEventListener('submit', async (ev) => {
       ? await sb.from(TABLE).update(row).eq('id', id)
       : await sb.from(TABLE).insert({ id, ...row, author: myName() });
     if (error) throw error;
-
-    if (oldPhoto && oldPhoto !== photoPath) {
-      sb.storage.from(BUCKET).remove([oldPhoto]).catch(() => {});
-    }
+    if (oldPhoto && oldPhoto !== photoPath) sb.storage.from(BUCKET).remove([oldPhoto]).catch(() => {});
     const wasNew = !editing;
     closeForm();
-    toast(wasNew ? (photoPath ? 'Eintrag mit Beweisfoto gespeichert ✓' : 'Eintrag gespeichert ✓') : 'Änderungen gespeichert ✓');
+    toast(wasNew ? (photoPath ? 'Pipi mit Beweisfoto gespeichert ✓' : 'Pipi gespeichert ✓') : 'Änderungen gespeichert ✓');
     await loadEntries();
   } catch (err) {
     if (uploaded) sb.storage.from(BUCKET).remove([uploaded]).catch(() => {});
@@ -525,17 +645,90 @@ $('#deleteBtn').addEventListener('click', async () => {
       showError($('#formError'), 'Löschen hat nicht geklappt: ' + (err?.message || err));
       return;
     }
-    closeForm();
-    toast('Eintrag gelöscht');
-    await loadEntries();
-    return;
+  } else {
+    const { error } = await sb.from(TABLE).delete().eq('id', entry.id);
+    if (error) { showError($('#formError'), friendlyError(error)); return; }
+    if (entry.photo) sb.storage.from(BUCKET).remove([entry.photo]).catch(() => {});
   }
-  const { error } = await sb.from(TABLE).delete().eq('id', entry.id);
-  if (error) { showError($('#formError'), friendlyError(error)); return; }
-  if (entry.photo) sb.storage.from(BUCKET).remove([entry.photo]).catch(() => {});
   closeForm();
   toast('Eintrag gelöscht');
   await loadEntries();
+});
+
+/* ---------- Formular: Medikation ---------- */
+const medDlg = $('#medDialog');
+let editingMed = null;
+
+function openMedForm(med = null) {
+  editingMed = med;
+  showError($('#medError'), '');
+  const latest = YlviMeds.sorted(state.meds).pop();
+  $('#medFormTitle').textContent = med ? 'Medikation bearbeiten' : 'Dosis ändern';
+  $('#medName').value = med ? med.name : (latest ? latest.name : 'Fluoxetin');
+  $('#medDose').value = med ? String(med.dose).replace('.', ',') : '';
+  $('#medFromBeginning').checked = !!(med && med.start === null);
+  $('#medStart').value = med && med.start ? med.start : toDateInput(new Date());
+  $('#medStart').disabled = $('#medFromBeginning').checked;
+  $('#medNote').value = med ? med.note || '' : '';
+  $('#medDelete').hidden = !med;
+  $('#medSave').disabled = false;
+  $('#medNames').innerHTML = YlviMeds.names(state.meds).map((n) => `<option value="${esc(n)}"></option>`).join('');
+  medDlg.showModal();
+  if (!med) $('#medDose').focus();
+}
+
+$('#medFromBeginning').addEventListener('change', () => { $('#medStart').disabled = $('#medFromBeginning').checked; });
+$('#medCancel').addEventListener('click', () => medDlg.close());
+$('#addMedBtn').addEventListener('click', () => openMedForm());
+
+$('#medForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const name = $('#medName').value.trim();
+  const dose = Number($('#medDose').value.trim().replace(',', '.'));
+  const start = $('#medFromBeginning').checked ? null : $('#medStart').value || null;
+  if (!name) return;
+  if (!Number.isFinite(dose) || dose < 0) { showError($('#medError'), 'Bitte die Dosis als Zahl in mg eingeben, z. B. 2,5.'); return; }
+  if (!$('#medFromBeginning').checked && !start) { showError($('#medError'), 'Bitte ein Datum wählen.'); return; }
+  const rec = {
+    id: editingMed ? editingMed.id : uid(),
+    name,
+    dose,
+    start,
+    note: $('#medNote').value.trim().slice(0, 300),
+    created: editingMed ? editingMed.created : Date.now(),
+    author: editingMed ? editingMed.author : myName(),
+  };
+  $('#medSave').disabled = true;
+  try {
+    if (mode === 'local') {
+      await localMeds.put(rec);
+    } else {
+      const { error } = await sb.from(MED_TABLE).upsert(medToRow(rec));
+      if (error) throw error;
+    }
+    medDlg.close();
+    toast(`💊 ${name} ${YlviMeds.fmtDose(dose)} gespeichert ✓`);
+    await loadEntries();
+  } catch (err) {
+    showError($('#medError'), friendlyError(err));
+    $('#medSave').disabled = false;
+  }
+});
+
+$('#medDelete').addEventListener('click', async () => {
+  if (!editingMed || !confirm('Diese Medikations-Änderung wirklich löschen?')) return;
+  try {
+    if (mode === 'local') await localMeds.remove(editingMed.id);
+    else {
+      const { error } = await sb.from(MED_TABLE).delete().eq('id', editingMed.id);
+      if (error) throw error;
+    }
+    medDlg.close();
+    toast('Gelöscht');
+    await loadEntries();
+  } catch (err) {
+    showError($('#medError'), friendlyError(err));
+  }
 });
 
 /* ---------- Foto groß ---------- */
@@ -544,19 +737,19 @@ function showPhoto(entry) {
   if (!url) return;
   $('#photoLarge').src = url;
   const d = new Date(entry.time);
-  $('#photoCaption').textContent =
-    `${TYPES[entry.type].icon} ${TYPES[entry.type].label} · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr` +
-    (entry.author ? ` · ${entry.author}` : '');
+  $('#photoCaption').textContent = `💧 Pipi · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr` + (entry.author ? ` · ${entry.author}` : '');
   $('#photoDialog').showModal();
 }
 $('#closePhoto').addEventListener('click', () => $('#photoDialog').close());
 $('#photoDialog').addEventListener('click', (e) => { if (e.target === $('#photoDialog')) $('#photoDialog').close(); });
 
-/* ---------- Klicks in Liste & Wochenplan ---------- */
+/* ---------- Klicks ---------- */
 const findEntry = (id) => state.entries.find((e) => e.id === id);
 document.addEventListener('click', (ev) => {
   const photoEl = ev.target.closest('[data-photo]');
   if (photoEl) { const e = findEntry(photoEl.dataset.photo); if (e) showPhoto(e); return; }
+  const medEl = ev.target.closest('[data-med]');
+  if (medEl) { const m = state.meds.find((x) => x.id === medEl.dataset.med); if (m) openMedForm(m); return; }
   const editEl = ev.target.closest('[data-edit]');
   if (editEl) { const e = findEntry(editEl.dataset.edit); if (e) openForm(e); }
 });
@@ -576,6 +769,7 @@ document.querySelectorAll('.tabs button').forEach((b) => {
     document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     $('#view-list').hidden = state.view !== 'list';
     $('#view-week').hidden = state.view !== 'week';
+    $('#view-meds').hidden = state.view !== 'meds';
     render();
   });
 });
@@ -584,13 +778,8 @@ $('#nextWeek').addEventListener('click', () => { state.weekStart = addDays(state
 
 /* ---------- PDF für den Tierarzt ---------- */
 const pdfDlg = $('#pdfDialog');
-let pdfResult = null; // { blob, filename } nach dem Erstellen
+let pdfResult = null;
 
-const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-function fromDateInput(str) {
-  const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
 function pdfRange() {
   const fromV = $('#pdfFrom').value;
   const toV = $('#pdfTo').value;
@@ -633,13 +822,12 @@ function resetPdfResult() {
 
 $('#pdfBtn').addEventListener('click', () => {
   showError($('#pdfError'), '');
-  // Standard: die aktuell angezeigte Woche und die drei davor
   const shownWeek = state.weekStart;
   $('#pdfFrom').value = toDateInput(addDays(shownWeek, -21));
   $('#pdfTo').value = toDateInput(addDays(shownWeek, 6));
   updatePdfInfo();
   pdfDlg.showModal();
-  YlviPdf.loadLib().catch(() => {}); // schon mal vorladen
+  YlviPdf.loadLib().catch(() => {});
 });
 document.querySelectorAll('.presets .chip').forEach((c) => c.addEventListener('click', () => setPdfWeeks(Number(c.dataset.weeks))));
 $('#pdfFrom').addEventListener('change', updatePdfInfo);
@@ -661,7 +849,6 @@ async function getPhotoBlob(entry) {
   const res = await fetch(url);
   return res.ok ? res.blob() : null;
 }
-
 function canSharePdf(file) {
   return matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] });
 }
@@ -680,7 +867,6 @@ $('#pdfForm').addEventListener('submit', async (ev) => {
   const btn = $('#pdfCreate');
   showError($('#pdfError'), '');
 
-  // Zweiter Schritt: fertiges PDF teilen bzw. herunterladen
   if (pdfResult) {
     const file = new File([pdfResult.blob], pdfResult.filename, { type: 'application/pdf' });
     if (canSharePdf(file)) {
@@ -710,6 +896,7 @@ $('#pdfForm').addEventListener('submit', async (ev) => {
     const result = await YlviPdf.create(state.entries, {
       from: r.from,
       to: r.to,
+      meds: state.meds,
       includeNotes: $('#pdfNotes').checked,
       includePhotos: $('#pdfPhotos').checked && !$('#pdfPhotos').disabled,
       getPhotoBlob,
@@ -742,7 +929,6 @@ $('#loginForm').addEventListener('submit', async (ev) => {
   });
   btn.disabled = false;
   if (error) showError($('#loginError'), friendlyError(error));
-  // Erfolg wird über onAuthStateChange verarbeitet
 });
 
 function askName() {
@@ -799,22 +985,42 @@ function onSignedIn(user) {
     render();
     loadEntries();
     subscribeLive();
-    checkLocalEntries();
+    checkLocalData();
     if (!(user.user_metadata && user.user_metadata.name)) askName();
   }
 }
+function onSignedOut() {
+  me = null;
+  unsubscribeLive();
+  state.entries = [];
+  state.meds = [];
+  state.loaded = false;
+  signedUrls.clear();
+  $('#migrateBox').hidden = true;
+  $('#loginPassword').value = '';
+  showScreen('login');
+  renderStatus();
+}
 
-/* ---------- Lokale Einträge in die Datenbank übernehmen ---------- */
+/* ---------- Lokale Daten in die Datenbank übernehmen ---------- */
 const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
-async function checkLocalEntries() {
-  let rows = [];
-  try { rows = await localDb.all(); } catch { /* kein lokaler Speicher */ }
+async function readLocalForMigration() {
+  const [rows, meds] = await Promise.all([
+    localDb.all().catch(() => []),
+    localMeds.all().catch(() => []),
+  ]);
+  return { rows: rows.filter((r) => isUrine(r.type)), allRows: rows, meds };
+}
+
+async function checkLocalData() {
+  const { rows, meds } = await readLocalForMigration();
   const box = $('#migrateBox');
-  if (!rows.length) { box.hidden = true; return; }
-  $('#migrateText').textContent = rows.length === 1
-    ? 'Auf diesem Handy liegt noch 1 Eintrag aus der Zeit ohne Datenbank.'
-    : `Auf diesem Handy liegen noch ${rows.length} Einträge aus der Zeit ohne Datenbank.`;
+  if (!rows.length && !meds.length) { box.hidden = true; return; }
+  const parts = [];
+  if (rows.length) parts.push(rows.length === 1 ? '1 Pipi-Eintrag' : `${rows.length} Pipi-Einträge`);
+  if (meds.length) parts.push(meds.length === 1 ? '1 Medikations-Eintrag' : `${meds.length} Medikations-Einträge`);
+  $('#migrateText').textContent = `Auf diesem Handy liegen noch ${parts.join(' und ')} aus der Zeit ohne Datenbank.`;
   $('#migrateBtn').disabled = false;
   box.hidden = false;
 }
@@ -822,14 +1028,18 @@ async function checkLocalEntries() {
 $('#migrateBtn').addEventListener('click', async () => {
   const btn = $('#migrateBtn');
   btn.disabled = true;
-  let rows;
-  try { rows = await localDb.all(); } catch (err) { $('#migrateText').textContent = friendlyError(err); return; }
+  const { rows, allRows, meds } = await readLocalForMigration();
   let done = 0;
-  for (const r of rows) {
-    $('#migrateText').textContent = `Übernehme Einträge… ${done} von ${rows.length}`;
-    const id = isUuid(r.id) ? r.id : uid();
-    let path = null;
-    try {
+  try {
+    for (const m of meds) {
+      const { error } = await sb.from(MED_TABLE).upsert(medToRow({ ...m, author: m.author || myName() }));
+      if (error) throw error;
+      await localMeds.remove(m.id);
+    }
+    for (const r of rows) {
+      $('#migrateText').textContent = `Übernehme Einträge… ${done} von ${rows.length}`;
+      const id = isUuid(r.id) ? r.id : uid();
+      let path = null;
       if (r.photo instanceof Blob) {
         path = `${id}/${r.created || r.time}.jpg`;
         const { error } = await sb.storage.from(BUCKET)
@@ -839,7 +1049,7 @@ $('#migrateBtn').addEventListener('click', async () => {
       const { error } = await sb.from(TABLE).upsert({
         id,
         time: new Date(r.time).toISOString(),
-        type: r.type,
+        type: 'pipi',
         note: (r.note || '').slice(0, 500),
         photo_path: path,
         author: myName(),
@@ -847,28 +1057,19 @@ $('#migrateBtn').addEventListener('click', async () => {
       if (error) throw error;
       await localDb.remove(r.id);
       done++;
-    } catch (err) {
-      $('#migrateText').textContent = `${done} von ${rows.length} übernommen. Fehler: ${friendlyError(err)} Tippe erneut auf „Übernehmen“.`;
-      btn.disabled = false;
-      await loadEntries();
-      return;
     }
+    // Frühere Kacka-Einträge werden nicht übernommen, sondern lokal entfernt
+    for (const r of allRows) if (!isUrine(r.type)) await localDb.remove(r.id).catch(() => {});
+  } catch (err) {
+    $('#migrateText').textContent = `${done} von ${rows.length} übernommen. Fehler: ${friendlyError(err)} Tippe erneut auf „Übernehmen“.`;
+    btn.disabled = false;
+    await loadEntries();
+    return;
   }
   $('#migrateBox').hidden = true;
   toast(`${done} Einträge übernommen ✓`);
   await loadEntries();
 });
-function onSignedOut() {
-  me = null;
-  unsubscribeLive();
-  state.entries = [];
-  state.loaded = false;
-  signedUrls.clear();
-  $('#migrateBox').hidden = true;
-  $('#loginPassword').value = '';
-  showScreen('login');
-  renderStatus();
-}
 
 /* ---------- Start ---------- */
 function startLocal() {
@@ -898,13 +1099,11 @@ function start() {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
   sb.auth.onAuthStateChange((event, session) => {
-    // Supabase empfiehlt, im Callback nichts zu awaiten – daher entkoppelt.
     setTimeout(() => {
       if (session && session.user) onSignedIn(session.user);
       else onSignedOut();
     }, 0);
   });
-
   setInterval(renderStatus, 60000);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && me) loadEntries();

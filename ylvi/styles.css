@@ -412,3 +412,49 @@ textarea { resize: vertical; }
 }
 .check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* ---------- Medikation ---------- */
+.med-status { font-size: .85rem; }
+.med-current {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.med-current b { display: block; font-size: 1.3rem; }
+.med-current span { color: var(--muted); font-size: .9rem; }
+.med-add { width: 100%; }
+.section-title {
+  font-size: .8rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  margin: 22px 4px 8px;
+}
+.cmp { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; font-variant-numeric: tabular-nums; }
+.cmp th, .cmp td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); font-size: .9rem; }
+.cmp th { color: var(--muted); font-weight: 600; font-size: .8rem; }
+.cmp tr:last-child td { border-bottom: 0; }
+.cmp td.num, .cmp th.num { text-align: right; }
+.cmp .big { font-weight: 700; font-size: 1.05rem; }
+.cmp small { color: var(--muted); display: block; }
+.med-item {
+  display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+}
+.med-item .when { flex: none; width: 84px; color: var(--muted); font-size: .85rem; padding-top: 2px; }
+.med-item .what { flex: 1; min-width: 0; }
+.med-item .what b { display: block; }
+.med-item .what span { color: var(--muted); font-size: .88rem; }
+.med-row {
+  display: flex; gap: 8px; align-items: center; width: 100%; text-align: left;
+  border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; font-weight: 600;
+}
+.med-row span { color: var(--muted); font-weight: 400; font-size: .88rem; }
+.dose-chip {
+  font-size: .78rem; font-weight: 600; color: var(--muted);
+  background: var(--surface-2); border-radius: 999px; padding: 1px 8px; margin-left: 6px; white-space: nowrap;
+}
+.dose-chip.changed { color: var(--accent-text); background: var(--accent); }
+.wday-head strong { display: inline-flex; align-items: center; flex-wrap: wrap; }

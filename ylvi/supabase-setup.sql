@@ -41,6 +41,38 @@ begin
   end if;
 end $$;
 
+-- 3b) Medikation (Dosisänderungen, z. B. Fluoxetin)
+create table if not exists public.medications (
+  id          text primary key,
+  name        text not null,
+  dose_mg     numeric not null check (dose_mg >= 0),
+  start_date  date,                       -- leer = seit Beginn der Aufzeichnung
+  note        text not null default '' check (char_length(note) <= 300),
+  author      text not null default '',
+  created_at  timestamptz not null default now()
+);
+alter table public.medications enable row level security;
+
+drop policy if exists "Angemeldete lesen Medikation"     on public.medications;
+drop policy if exists "Angemeldete schreiben Medikation" on public.medications;
+drop policy if exists "Angemeldete ändern Medikation"    on public.medications;
+drop policy if exists "Angemeldete löschen Medikation"   on public.medications;
+
+create policy "Angemeldete lesen Medikation"     on public.medications for select to authenticated using (true);
+create policy "Angemeldete schreiben Medikation" on public.medications for insert to authenticated with check (true);
+create policy "Angemeldete ändern Medikation"    on public.medications for update to authenticated using (true) with check (true);
+create policy "Angemeldete löschen Medikation"   on public.medications for delete to authenticated using (true);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'medications'
+  ) then
+    alter publication supabase_realtime add table public.medications;
+  end if;
+end $$;
+
 -- 4) Privater Speicher für die Beweisfotos (max. 10 MB pro Foto, nur Bilder)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('photos', 'photos', false, 10485760, array['image/jpeg', 'image/png', 'image/webp'])

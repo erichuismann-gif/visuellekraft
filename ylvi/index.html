@@ -21,6 +21,7 @@
       <div>
         <h1>Ylvis Klo-Plan</h1>
         <p id="status" class="status">Wird geladen…</p>
+        <p id="medStatus" class="status med-status" hidden></p>
       </div>
     </div>
     <button id="menuBtn" class="icon-btn" aria-label="Menü" aria-haspopup="true" hidden>⋯</button>
@@ -58,6 +59,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-view="list" aria-selected="true">Verlauf</button>
       <button role="tab" data-view="week" aria-selected="false">Wochenplan</button>
+      <button role="tab" data-view="meds" aria-selected="false">Medikation</button>
     </nav>
 
     <main>
@@ -79,13 +81,17 @@
           <strong id="weekLabel"></strong>
           <button class="icon-btn" id="nextWeek" aria-label="Nächste Woche">›</button>
         </div>
-        <div class="legend">
-          <span><i class="dot pipi"></i>Pipi</span>
-          <span><i class="dot kacka"></i>Kacka</span>
-          <span><i class="dot beides"></i>Beides</span>
-        </div>
         <div id="week"></div>
         <button id="pdfBtn" type="button" class="btn pdf-btn">📄 Als PDF für den Tierarzt</button>
+      </section>
+
+      <section id="view-meds" class="view" hidden>
+        <div id="medCurrent" class="med-current"></div>
+        <button id="addMedBtn" type="button" class="btn primary med-add">💊 Dosis ändern</button>
+        <h3 class="section-title">Pipi pro Tag je Dosis</h3>
+        <div id="medCompare"></div>
+        <h3 class="section-title">Verlauf der Medikation</h3>
+        <div id="medList"></div>
       </section>
     </main>
 
@@ -96,13 +102,6 @@
   <dialog id="entryDialog">
     <form id="entryForm">
       <h2 id="formTitle">Neuer Eintrag</h2>
-
-      <fieldset class="types">
-        <legend>Was war's?</legend>
-        <label><input type="radio" name="type" value="pipi" checked><span>💧 Pipi</span></label>
-        <label><input type="radio" name="type" value="kacka"><span>💩 Kacka</span></label>
-        <label><input type="radio" name="type" value="beides"><span>💧💩 Beides</span></label>
-      </fieldset>
 
       <label class="field">
         <span>Wann?</span>
@@ -129,7 +128,7 @@
 
       <label class="field">
         <span>Notiz <small>(optional)</small></span>
-        <textarea name="note" rows="2" maxlength="500" placeholder="z. B. Konsistenz, Menge, Auffälligkeiten…"></textarea>
+        <textarea name="note" rows="2" maxlength="500" placeholder="z. B. Menge, Blut, Pressen, außerhalb vom Klo…"></textarea>
       </label>
 
       <p id="entryMeta" class="muted small" hidden></p>
@@ -173,11 +172,39 @@
     </form>
   </dialog>
 
+  <!-- Medikation -->
+  <dialog id="medDialog">
+    <form id="medForm" class="stack pad">
+      <h2 id="medFormTitle">Dosis ändern</h2>
+      <label class="field"><span>Medikament</span>
+        <input id="medName" type="text" list="medNames" maxlength="60" required autocomplete="off">
+        <datalist id="medNames"></datalist>
+      </label>
+      <label class="field"><span>Dosis in mg <small>(0 = abgesetzt)</small></span>
+        <input id="medDose" type="text" inputmode="decimal" required placeholder="z. B. 2,5" autocomplete="off">
+      </label>
+      <label class="field"><span>Ab</span>
+        <input id="medStart" type="date">
+      </label>
+      <label class="check"><input id="medFromBeginning" type="checkbox"> Seit Beginn der Aufzeichnung (Datum unbekannt)</label>
+      <label class="field"><span>Notiz <small>(optional)</small></span>
+        <textarea id="medNote" rows="2" maxlength="300" placeholder="z. B. auf Empfehlung der Tierärztin"></textarea>
+      </label>
+      <p id="medError" class="form-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="medDelete" class="btn ghost danger" hidden>Löschen</button>
+        <span class="spacer"></span>
+        <button type="button" id="medCancel" class="btn ghost">Abbrechen</button>
+        <button type="submit" id="medSave" class="btn primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- PDF-Export -->
   <dialog id="pdfDialog">
     <form id="pdfForm" class="stack pad">
       <h2>PDF für den Tierarzt</h2>
-      <p class="muted">Die Wochenübersicht für den gewählten Zeitraum, Woche für Woche, mit Zusammenfassung oben.</p>
+      <p class="muted">Die Wochenübersicht für den gewählten Zeitraum, Woche für Woche, mit Medikation und Zusammenfassung oben.</p>
       <div class="field">
         <span>Zeitraum</span>
         <div class="presets" role="group" aria-label="Schnellauswahl">
@@ -215,6 +242,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
+  <script src="meds.js"></script>
   <script src="pdf-export.js"></script>
   <script src="app.js"></script>
 </body>

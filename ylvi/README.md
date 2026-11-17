@@ -1,16 +1,16 @@
 # Ylvis Klo-Plan 🐱
 
-Gemeinsames Klo-Tagebuch für Katze Ylvi. Jeder Eintrag kann ein Beweisfoto haben.
+Pipi-Protokoll für Katze Ylvi (Blasenprobleme) mit Beweisfotos und Medikationsverlauf.
 Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge erscheinen sofort bei allen.
 
 ## Funktionen
-- **Eintrag anlegen**: Pipi / Kacka / Beides, Uhrzeit (vorausgefüllt mit „jetzt“), optionale Notiz
-- **Beweisfoto**: direkt mit der Handykamera aufnehmen oder aus der Galerie wählen (wird automatisch verkleinert)
-- **Verlauf**: alle Einträge nach Tagen, mit Vorschaubild und Namen der Person, die eingetragen hat
-- **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste, Woche vor/zurück blättern
-- **Status oben**: wie lange der letzte Besuch (und das letzte Kacka) her ist
-- **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Zusammenfassung (Anzahl, Ø pro Tag, längste Pausen), optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar (z. B. per Mail oder WhatsApp).
-- **Live**: Trägt eine Person etwas ein, sieht die andere es sofort
+- **Pipi eintragen**: Uhrzeit (vorausgefüllt mit „jetzt“), optionale Notiz (z. B. Menge, Blut, Pressen) und Beweisfoto per Kamera oder Galerie
+- **Verlauf**: alle Pipi-Einträge nach Tagen, mit Vorschaubild; Dosisänderungen erscheinen direkt im Verlauf
+- **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste und die an dem Tag gültige Dosis; Tage mit Dosisänderung sind hervorgehoben
+- **Medikation**: Dosisänderungen eintragen (z. B. Fluoxetin 5 mg → 2,5 mg), Verlauf der Medikation und Vergleich „Ø Pipi pro Tag je Dosis“
+- **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Medikation, Vergleich je Dosis, Zusammenfassung, optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar.
+- **Status oben**: wie lange das letzte Pipi her ist und die aktuelle Dosis
+- **Gemeinsam & live** (mit Datenbank): Trägt eine Person etwas ein, sieht die andere es sofort
 
 ## Sofort loslegen – ohne Datenbank
 Solange in `config.js` nichts eingetragen ist, läuft die App im **lokalen Modus**:

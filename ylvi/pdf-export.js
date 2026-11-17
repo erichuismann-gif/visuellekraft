@@ -2,17 +2,18 @@
 
 /* =========================================================
    PDF-Export für den Tierarzt
-   Erzeugt aus den Einträgen eine Wochenübersicht über mehrere
-   Wochen (A4 hoch), optional mit Notizen und Beweisfotos.
-   Nutzt jsPDF (vendor/jspdf.umd.min.js, MIT-Lizenz).
+   Wochenübersicht der Pipi-Besuche über mehrere Wochen (A4 hoch),
+   mit Medikation (Dosis je Tag, Vergleich je Dosis),
+   optional Notizen und Beweisfotos.
+   Nutzt jsPDF (vendor/jspdf.umd.min.js, MIT-Lizenz) und meds.js.
    ========================================================= */
 
 const YlviPdf = (() => {
   const A4 = { w: 210, h: 297 };
   const M = 15;                       // Seitenrand
   const CONTENT_W = A4.w - 2 * M;
-  const LABEL_W = 24;                 // Spalte "Mo 09.11."
-  const COUNT_W = 30;                 // Spalte rechts "P 3 · K 1"
+  const LABEL_W = 24;                 // Spalte "Mo 09.11." + Dosis
+  const COUNT_W = 22;                 // Spalte rechts "3 Pipi"
   const BAR_X = M + LABEL_W;
   const BAR_W = CONTENT_W - LABEL_W - COUNT_W;
   const ROW_H = 10;
@@ -24,19 +25,16 @@ const YlviPdf = (() => {
     muted: [119, 106, 96],
     line: [222, 212, 201],
     bar: [244, 239, 233],
-    today: [184, 97, 47],
+    accent: [184, 97, 47],
     pipi: [217, 169, 31],
-    kacka: [125, 79, 51],
-    beides: [196, 112, 61],
     white: [255, 255, 255],
   };
-  const TYPE_LABEL = { pipi: 'Pipi', kacka: 'Kacka', beides: 'Pipi + Kacka' };
-  const TYPE_SHORT = { pipi: 'P', kacka: 'K', beides: 'P+K' };
 
   const pad = (n) => String(n).padStart(2, '0');
   const fmtDate = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
   const fmtDateShort = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.`;
   const fmtTime = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const fmtNum = (n) => n.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
   const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
   const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -49,14 +47,12 @@ const YlviPdf = (() => {
     const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
     return Math.ceil(((t - y0) / 86400000 + 1) / 7);
   }
-
   function fmtDuration(ms) {
     const h = Math.floor(ms / 3600000);
     const min = Math.round((ms % 3600000) / 60000);
     if (h >= 48) return `${Math.floor(h / 24)} Tage ${h % 24} Std.`;
     return min ? `${h} Std. ${min} Min.` : `${h} Std.`;
   }
-
   function longestGap(times) {
     let best = 0;
     for (let i = 1; i < times.length; i++) best = Math.max(best, times[i] - times[i - 1]);
@@ -102,29 +98,29 @@ const YlviPdf = (() => {
   }
 
   /**
-   * @param {Array} entries  [{id, time(ms), type, note, photo, author}]
-   * @param {Object} opts    {from: Date, to: Date, includeNotes, includePhotos,
+   * @param {Array} entries  Pipi-Einträge [{id, time(ms), note, photo, author}]
+   * @param {Object} opts    {from: Date, to: Date, meds: [], includeNotes, includePhotos,
    *                          getPhotoBlob(entry) => Promise<Blob|null>, onProgress(text)}
-   * @returns {Promise<{blob: Blob, filename: string}>}
    */
   async function create(entries, opts) {
     const JsPDF = await loadLib();
     const progress = opts.onProgress || (() => {});
+    const meds = opts.meds || [];
     const weekStart0 = startOfWeek(opts.from);
     const weekEnd = addDays(startOfWeek(opts.to), 7); // exklusiv
     const weeks = Math.round((weekEnd - weekStart0) / (7 * 86400000));
     const rangeFrom = weekStart0.getTime();
     const rangeTo = weekEnd.getTime();
     const now = Date.now();
-    const effTo = Math.min(rangeTo, now);
+    const effTo = Math.min(rangeTo, addDays(startOfDay(new Date(now)), 1).getTime());
 
     const inRange = entries
-      .filter((e) => e.time >= rangeFrom && e.time < rangeTo)
+      .filter((e) => e.type !== 'kacka' && e.time >= rangeFrom && e.time < rangeTo)
       .sort((a, b) => a.time - b.time);
     const authors = new Set(inRange.map((e) => e.author).filter(Boolean));
 
     const doc = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-    doc.setProperties({ title: 'Ylvis Klo-Plan', subject: 'Klo-Protokoll für den Tierarzt', creator: 'Ylvis Klo-Plan' });
+    doc.setProperties({ title: 'Ylvis Klo-Plan', subject: 'Pipi-Protokoll für den Tierarzt', creator: 'Ylvis Klo-Plan' });
     const rangeText = `${fmtDate(weekStart0)} – ${fmtDate(addDays(weekEnd, -1))}`;
 
     const setColor = (rgb) => doc.setTextColor(rgb[0], rgb[1], rgb[2]);
@@ -137,22 +133,56 @@ const YlviPdf = (() => {
       if (y + h > FOOTER_Y - 4) { doc.addPage(); y = M; return true; }
       return false;
     }
-
-    function marker(type, x, cy, size = 1) {
+    function pipiDot(x, cy) {
       stroke(C.white);
       doc.setLineWidth(0.3);
-      if (type === 'pipi') {
-        fill(C.pipi);
-        doc.circle(x, cy, 1.55 * size, 'FD');
-      } else if (type === 'kacka') {
-        fill(C.kacka);
-        const s = 3 * size;
-        doc.rect(x - s / 2, cy - s / 2, s, s, 'FD');
-      } else {
-        fill(C.beides);
-        const r = 1.9 * size;
-        doc.triangle(x, cy - r, x + r, cy, x - r, cy, 'F');
-        doc.triangle(x, cy + r, x + r, cy, x - r, cy, 'F');
+      fill(C.pipi);
+      doc.circle(x, cy, 1.55, 'FD');
+    }
+    function doseMarker(x, cy) {
+      fill(C.accent);
+      doc.triangle(x - 1.3, cy - 1.6, x - 1.3, cy + 1.6, x + 1.5, cy, 'F');
+    }
+    function sectionTitle(text, sub) {
+      font('bold', 11);
+      doc.text(text, M, y + 4);
+      if (sub) {
+        const w = doc.getTextWidth(text);
+        font('normal', 8, C.muted);
+        doc.text(sub, M + w + 3, y + 4);
+      }
+      y += 8;
+    }
+    function table(cols, rows, { boldCol = -1 } = {}) {
+      const header = () => {
+        font('bold', 8, C.muted);
+        let x = M;
+        for (const [h, w, align] of cols) {
+          doc.text(h, align === 'right' ? x + w - 2 : x, y, { align: align === 'right' ? 'right' : 'left' });
+          x += w;
+        }
+        y += 1.8;
+        stroke(C.line);
+        doc.setLineWidth(0.2);
+        doc.line(M, y, A4.w - M, y);
+        y += 4;
+      };
+      header();
+      for (const row of rows) {
+        font('normal', 8.5);
+        const last = cols.length - 1;
+        const wrapped = doc.splitTextToSize(String(row[last] || ''), cols[last][1]);
+        const h = Math.max(1, wrapped.length) * 3.8 + 1.4;
+        if (ensureSpace(h + 2)) header();
+        let x = M;
+        row.forEach((v, i) => {
+          const [, w, align] = cols[i];
+          font(i === boldCol ? 'bold' : 'normal', 8.5);
+          if (i === last) doc.text(wrapped, x, y);
+          else doc.text(String(v), align === 'right' ? x + w - 2 : x, y, { align: align === 'right' ? 'right' : 'left' });
+          x += w;
+        });
+        y += h;
       }
     }
 
@@ -160,7 +190,7 @@ const YlviPdf = (() => {
     font('bold', 20);
     doc.text('Ylvis Klo-Plan', M, y + 7);
     font('normal', 10.5, C.muted);
-    doc.text('Protokoll der Klo-Besuche von Katze Ylvi', M, y + 13);
+    doc.text('Protokoll Urinabsatz (Pipi) von Katze Ylvi', M, y + 13);
     font('bold', 10.5);
     doc.text(`Zeitraum: ${rangeText}`, A4.w - M, y + 7, { align: 'right' });
     font('normal', 9, C.muted);
@@ -172,57 +202,87 @@ const YlviPdf = (() => {
     y += 6;
 
     /* ---------- Zusammenfassung ---------- */
-    const effDays = Math.max(1, Math.round((startOfDay(new Date(effTo - 1)).getTime() - rangeFrom) / 86400000) + 1);
-    const pipiTimes = inRange.filter((e) => e.type !== 'kacka').map((e) => e.time);
-    const kackaTimes = inRange.filter((e) => e.type !== 'pipi').map((e) => e.time);
-    const daysWithoutKacka = (() => {
-      let n = 0;
-      for (let d = 0; d < effDays; d++) {
-        const day = addDays(weekStart0, d).getTime();
-        const next = addDays(weekStart0, d + 1).getTime();
-        if (!kackaTimes.some((t) => t >= day && t < next)) n++;
-      }
-      return n;
-    })();
-    const avg = (n) => (n / effDays).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-
+    const effDays = Math.max(1, Math.round((effTo - rangeFrom) / 86400000));
+    const times = inRange.map((e) => e.time);
+    let maxDay = { n: 0, d: null };
+    for (let d = 0; d < effDays; d++) {
+      const a = addDays(weekStart0, d).getTime();
+      const b = addDays(weekStart0, d + 1).getTime();
+      const n = times.filter((t) => t >= a && t < b).length;
+      if (n > maxDay.n) maxDay = { n, d: new Date(a) };
+    }
     const stats = [
-      ['Pipi gesamt', `${pipiTimes.length}`, `Ø ${avg(pipiTimes.length)} pro Tag`],
-      ['Kacka gesamt', `${kackaTimes.length}`, `Ø ${avg(kackaTimes.length)} pro Tag`],
-      ['Längste Pause Pipi', pipiTimes.length > 1 ? fmtDuration(longestGap(pipiTimes)) : '–', 'zwischen zwei Einträgen'],
-      ['Längste Pause Kacka', kackaTimes.length > 1 ? fmtDuration(longestGap(kackaTimes)) : '–', `${daysWithoutKacka} ${daysWithoutKacka === 1 ? 'Tag' : 'Tage'} ohne Kacka`],
+      ['Pipi gesamt', `${times.length}`, `an ${effDays} ${effDays === 1 ? 'Tag' : 'Tagen'}`],
+      ['Ø pro Tag', fmtNum(times.length / effDays), 'im ganzen Zeitraum'],
+      ['Meiste an einem Tag', maxDay.n ? `${maxDay.n}` : '–', maxDay.d ? `${WD[maxDay.d.getDay()]} ${fmtDate(maxDay.d)}` : ''],
+      ['Längste Pause', times.length > 1 ? fmtDuration(longestGap(times)) : '–', 'zwischen zwei Einträgen'],
     ];
     const colW = CONTENT_W / 4;
     stats.forEach(([label, value, sub], i) => {
-      const x = M + i * colW;
+      const x = M + i * colW + (i ? 1.5 : 0);
       fill(C.bar);
-      doc.roundedRect(x + (i ? 1.5 : 0), y, colW - 1.5, 21, 2, 2, 'F');
-      const tx = x + (i ? 1.5 : 0) + 3;
+      doc.roundedRect(x, y, colW - 1.5, 21, 2, 2, 'F');
       font('normal', 8, C.muted);
-      doc.text(label, tx, y + 5.5);
+      doc.text(label, x + 3, y + 5.5);
       font('bold', 13);
-      doc.text(value, tx, y + 12.5);
+      doc.text(value, x + 3, y + 12.5);
       font('normal', 7.5, C.muted);
-      doc.text(sub, tx, y + 17.5);
+      doc.text(sub, x + 3, y + 17.5);
     });
     y += 25;
     font('normal', 7.5, C.muted);
     doc.text(
-      `Ausgewertet: ${effDays} ${effDays === 1 ? 'Tag' : 'Tage'} bis ${fmtDate(new Date(effTo - 1))}. ` +
-      'Enthält nur beobachtete und eingetragene Klo-Besuche. „Pipi + Kacka“ zählt bei beiden mit.',
+      `Ausgewertet bis ${fmtDate(new Date(effTo - 1))} (der heutige Tag zählt mit). ` +
+      'Enthält nur beobachtete und eingetragene Pipi-Besuche.',
       M, y
     );
-    y += 6;
+    y += 7;
+
+    /* ---------- Medikation ---------- */
+    if (meds.length) {
+      // relevante Änderungen: die zu Beginn gültigen + alle im Zeitraum
+      const atStart = YlviMeds.doseOn(meds, weekStart0).map((d) => d.change);
+      const within = YlviMeds.sorted(meds).filter((m) => m.start && m.start > YlviMeds.dayKey(weekStart0) && YlviMeds.keyToDate(m.start).getTime() < rangeTo);
+      const rel = [...atStart, ...within];
+      if (rel.length) {
+        sectionTitle('Medikation', within.length ? 'Dosisänderungen sind in der Zeitleiste orange markiert' : '');
+        table(
+          [['Ab', 26], ['Medikament', 32], ['Dosis', 22], ['Hinweis', CONTENT_W - 80]],
+          rel.map((m) => [m.start ? fmtDate(YlviMeds.keyToDate(m.start)) : 'vorher', m.name, YlviMeds.fmtDose(m.dose), m.note || '']),
+          { boldCol: 2 }
+        );
+        y += 2;
+
+        const cmp = YlviMeds.compare(inRange, meds, weekStart0, weekEnd, now);
+        if (cmp.length > 1 || (cmp.length === 1 && within.length === 0)) {
+          ensureSpace(8 + 6 + cmp.length * 5.2);
+          sectionTitle('Pipi je Dosis', 'im gewählten Zeitraum');
+          table(
+            [['Dosis', 42], ['Zeitraum', 42], ['Tage', 16, 'right'], ['Pipi', 16, 'right'], ['Ø pro Tag', 24, 'right'], ['', 8], ['Längste Pause', CONTENT_W - 148]],
+            cmp.map((p) => [
+              YlviMeds.label(meds, p.doses, { long: true }) || 'ohne',
+              `${fmtDateShort(p.from)} – ${fmtDate(addDays(p.to, -1))}`,
+              String(p.days), String(p.count), fmtNum(p.avg), '',
+              p.longestGap ? fmtDuration(p.longestGap) : '–',
+            ]),
+            { boldCol: 4 }
+          );
+          y += 2;
+        }
+      }
+    }
 
     /* ---------- Legende ---------- */
-    let lx = M;
+    ensureSpace(10);
     font('normal', 8.5);
-    for (const t of ['pipi', 'kacka', 'beides']) {
-      marker(t, lx + 2, y - 1);
-      setColor(C.text);
-      const label = `${TYPE_LABEL[t]} (${TYPE_SHORT[t]})`;
-      doc.text(label, lx + 5, y);
-      lx += 5 + doc.getTextWidth(label) + 8;
+    pipiDot(M + 2, y - 1);
+    doc.text('Pipi', M + 5, y);
+    let lx = M + 5 + doc.getTextWidth('Pipi') + 8;
+    doc.text('* = mit Notiz', lx, y);
+    lx += doc.getTextWidth('* = mit Notiz') + 8;
+    if (meds.length) {
+      doseMarker(lx + 1.5, y - 1);
+      doc.text('Dosisänderung', lx + 4.5, y);
     }
     font('normal', 8.5, C.muted);
     doc.text('Zeitleiste je Tag von 0 bis 24 Uhr', A4.w - M, y, { align: 'right' });
@@ -238,8 +298,7 @@ const YlviPdf = (() => {
       const we = addDays(ws, 7);
       ensureSpace(weekHeight);
       const wEntries = inRange.filter((e) => e.time >= ws.getTime() && e.time < we.getTime());
-      const wp = wEntries.filter((e) => e.type !== 'kacka').length;
-      const wk = wEntries.filter((e) => e.type !== 'pipi').length;
+      const wDays = Math.max(0, Math.min(7, Math.round((Math.min(we.getTime(), effTo) - ws.getTime()) / 86400000)));
 
       font('bold', 11);
       doc.text(`KW ${isoWeek(ws)}`, M, y + 4.5);
@@ -247,9 +306,8 @@ const YlviPdf = (() => {
       font('normal', 10, C.muted);
       doc.text(`${WD[ws.getDay()]} ${fmtDateShort(ws)} – ${WD[addDays(we, -1).getDay()]} ${fmtDate(addDays(we, -1))}`, M + kwW + 3, y + 4.5);
       font('bold', 9.5);
-      doc.text(`Pipi ${wp} · Kacka ${wk}`, A4.w - M, y + 4.5, { align: 'right' });
+      doc.text(`Pipi ${wEntries.length}${wDays ? ` · Ø ${fmtNum(wEntries.length / wDays)}/Tag` : ''}`, A4.w - M, y + 4.5, { align: 'right' });
 
-      // Stundenskala
       font('normal', 6.5, C.muted);
       for (let hh = 0; hh <= 24; hh += 3) {
         const x = BAR_X + (BAR_W * hh) / 24;
@@ -264,10 +322,29 @@ const YlviPdf = (() => {
         const isToday = day.getTime() === todayKey;
         const future = day.getTime() > now;
         const by = y + 1;
+        const changed = meds.length && YlviMeds.changesOn(meds, day).length > 0;
+        const dl = meds.length ? YlviMeds.label(meds, YlviMeds.doseOn(meds, day)) : '';
 
-        // Tag
+        if (changed) {
+          // Akzentlinie über dem Tag der Dosisänderung
+          stroke(C.accent);
+          doc.setLineWidth(0.5);
+          doc.line(M, y + 0.1, A4.w - M, y + 0.1);
+        }
+
+        // Tag + Dosis
         font(isToday ? 'bold' : 'normal', 9, future ? C.muted : C.text);
         doc.text(`${WD[day.getDay()]} ${fmtDateShort(day)}`, M, by + BAR_H - 0.8);
+        if (dl) {
+          if (changed) {
+            doseMarker(M + 1.3, by + BAR_H + 2.2);
+            font('bold', 6.8, C.accent);
+            doc.text(dl, M + 3.6, by + BAR_H + 3.2);
+          } else {
+            font('normal', 6.8, C.muted);
+            doc.text(dl, M, by + BAR_H + 3.2);
+          }
+        }
 
         // Balken mit Raster
         fill(C.bar);
@@ -279,30 +356,26 @@ const YlviPdf = (() => {
           doc.line(x, by, x, by + BAR_H);
         }
         if (isToday) {
-          stroke(C.today);
+          stroke(C.accent);
           doc.setLineWidth(0.4);
           doc.roundedRect(BAR_X, by, BAR_W, BAR_H, 1, 1, 'S');
         }
         for (const e of items) {
           const t = new Date(e.time);
-          const x = BAR_X + (BAR_W * (t.getHours() * 60 + t.getMinutes())) / 1440;
-          marker(e.type, x, by + BAR_H / 2);
+          pipiDot(BAR_X + (BAR_W * (t.getHours() * 60 + t.getMinutes())) / 1440, by + BAR_H / 2);
         }
 
         // Anzahl rechts
-        const p = items.filter((e) => e.type !== 'kacka').length;
-        const k = items.filter((e) => e.type !== 'pipi').length;
-        font('normal', 8.5, items.length ? C.text : C.muted);
-        doc.text(items.length ? `P ${p} · K ${k}` : (future ? '' : '–'), A4.w - M, by + BAR_H - 0.8, { align: 'right' });
+        font(items.length ? 'bold' : 'normal', 9, items.length ? C.text : C.muted);
+        doc.text(items.length ? `${items.length} Pipi` : (future ? '' : '–'), A4.w - M, by + BAR_H - 0.8, { align: 'right' });
 
         // Uhrzeiten unter dem Balken
         if (items.length) {
           font('normal', 6.5, C.muted);
-          const txt = items.map((e) => `${fmtTime(new Date(e.time))} ${TYPE_SHORT[e.type]}${e.note ? '*' : ''}`).join('   ');
+          const txt = items.map((e) => `${fmtTime(new Date(e.time))}${e.note ? '*' : ''}`).join('    ');
           const lines = doc.splitTextToSize(txt, BAR_W);
           doc.text(lines[0] + (lines.length > 1 ? ' …' : ''), BAR_X, by + BAR_H + 3.2);
         }
-        // Trennlinie
         stroke([238, 231, 223]);
         doc.setLineWidth(0.15);
         doc.line(M, y + ROW_H - 0.3, A4.w - M, y + ROW_H - 0.3);
@@ -316,41 +389,16 @@ const YlviPdf = (() => {
     if (opts.includeNotes && withNotes.length) {
       ensureSpace(24);
       y += 2;
-      font('bold', 12);
-      doc.text('Notizen', M, y + 4);
-      const notesW = doc.getTextWidth('Notizen');
-      font('normal', 8, C.muted);
-      doc.text('in der Zeitleiste mit * markiert', M + notesW + 3, y + 4);
-      y += 9;
+      sectionTitle('Notizen', 'in der Zeitleiste mit * markiert');
       const showAuthor = authors.size > 0;
       const cols = showAuthor
-        ? [['Datum', 26], ['Zeit', 13], ['Art', 22], ['Von', 22], ['Notiz', CONTENT_W - 83]]
-        : [['Datum', 26], ['Zeit', 13], ['Art', 22], ['Notiz', CONTENT_W - 61]];
-      const header = () => {
-        font('bold', 8, C.muted);
-        let x = M;
-        for (const [h, wdt] of cols) { doc.text(h, x, y); x += wdt; }
-        y += 1.8;
-        stroke(C.line);
-        doc.setLineWidth(0.2);
-        doc.line(M, y, A4.w - M, y);
-        y += 4;
-      };
-      header();
-      for (const e of withNotes) {
+        ? [['Datum', 28], ['Zeit', 14], ['Von', 22], ['Notiz', CONTENT_W - 64]]
+        : [['Datum', 28], ['Zeit', 14], ['Notiz', CONTENT_W - 42]];
+      table(cols, withNotes.map((e) => {
         const d = new Date(e.time);
-        font('normal', 8.5);
-        const noteLines = doc.splitTextToSize(e.note, cols[cols.length - 1][1]);
-        const h = Math.max(1, noteLines.length) * 3.8 + 1.6;
-        if (ensureSpace(h + 2)) header();
-        let x = M;
-        const values = showAuthor
-          ? [`${WD[d.getDay()]} ${fmtDate(d)}`, fmtTime(d), TYPE_LABEL[e.type], e.author || '']
-          : [`${WD[d.getDay()]} ${fmtDate(d)}`, fmtTime(d), TYPE_LABEL[e.type]];
-        values.forEach((v, i) => { doc.text(v, x, y); x += cols[i][1]; });
-        doc.text(noteLines, x, y);
-        y += h;
-      }
+        const base = [`${WD[d.getDay()]} ${fmtDate(d)}`, fmtTime(d)];
+        return showAuthor ? [...base, e.author || '', e.note] : [...base, e.note];
+      }));
     }
 
     /* ---------- Fotos ---------- */
@@ -358,9 +406,8 @@ const YlviPdf = (() => {
     if (opts.includePhotos && withPhotos.length && opts.getPhotoBlob) {
       doc.addPage();
       y = M;
-      font('bold', 12);
-      doc.text('Beweisfotos', M, y + 4);
-      y += 10;
+      sectionTitle('Beweisfotos');
+      y += 2;
       const cellW = (CONTENT_W - 6) / 2;
       const imgMaxH = 68;
       const cellH = imgMaxH + 12;
@@ -387,9 +434,9 @@ const YlviPdf = (() => {
           doc.text('Foto nicht verfügbar', x + cellW / 2, y + imgMaxH / 2, { align: 'center' });
         }
         const d = new Date(e.time);
-        marker(e.type, x + 2, y + imgMaxH + 4);
+        pipiDot(x + 2, y + imgMaxH + 4);
         font('bold', 8.5);
-        doc.text(`${WD[d.getDay()]} ${fmtDate(d)}, ${fmtTime(d)} Uhr · ${TYPE_LABEL[e.type]}`, x + 5, y + imgMaxH + 5);
+        doc.text(`${WD[d.getDay()]} ${fmtDate(d)}, ${fmtTime(d)} Uhr`, x + 5, y + imgMaxH + 5);
         if (e.note) {
           font('normal', 7.5, C.muted);
           const nl = doc.splitTextToSize(e.note, cellW - 5);
@@ -410,9 +457,10 @@ const YlviPdf = (() => {
     }
 
     progress('PDF wird gespeichert…');
-    const filename = `Ylvi-Klo-Plan_${fmtDate(weekStart0).split('.').reverse().join('-')}_bis_${fmtDate(addDays(weekEnd, -1)).split('.').reverse().join('-')}.pdf`;
+    const iso = (d) => fmtDate(d).split('.').reverse().join('-');
+    const filename = `Ylvi-Pipi-Protokoll_${iso(weekStart0)}_bis_${iso(addDays(weekEnd, -1))}.pdf`;
     return { blob: doc.output('blob'), filename };
   }
 
-  return { create, loadLib, startOfWeek, addDays };
+  return { create, loadLib };
 })();
