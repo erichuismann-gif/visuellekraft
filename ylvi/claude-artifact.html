@@ -1,0 +1,668 @@
+<title>Ylvis Klo-Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&display=swap">
+<style>
+/* Layout: one narrow column like a pocket logbook; a 24h timeline per day is the signature element. */
+:root {
+  --bg: #f7f3ee;
+  --surface: #ffffff;
+  --surface-2: #efe7de;
+  --text: #2a231f;
+  --muted: #776a60;
+  --line: #e3d9ce;
+  --accent: #b8612f;
+  --accent-text: #ffffff;
+  --pipi: #d9a91f;
+  --kacka: #7d4f33;
+  --beides: #c4703d;
+  --danger: #b4372a;
+  --shadow: 0 6px 24px rgba(60, 40, 20, .14);
+  --backdrop: rgba(20, 12, 6, .55);
+  --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+  --font-body: "Nunito Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1714; --surface: #25201c; --surface-2: #322a24; --text: #f2ebe3; --muted: #a8988b;
+    --line: #3d342d; --accent: #e08a52; --accent-text: #1b1714; --pipi: #e8c452; --kacka: #b98560;
+    --beides: #e08a52; --danger: #ef6b5b; --shadow: 0 6px 24px rgba(0,0,0,.45); --backdrop: rgba(0,0,0,.65);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1b1714; --surface: #25201c; --surface-2: #322a24; --text: #f2ebe3; --muted: #a8988b;
+  --line: #3d342d; --accent: #e08a52; --accent-text: #1b1714; --pipi: #e8c452; --kacka: #b98560;
+  --beides: #e08a52; --danger: #ef6b5b; --shadow: 0 6px 24px rgba(0,0,0,.45); --backdrop: rgba(0,0,0,.65);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  font: 16px/1.45 var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 calc(100px + env(safe-area-inset-bottom, 0px));
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button:focus-visible, .entry:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 680px; margin: 0 auto; }
+
+/* Kopf */
+.top { display: flex; align-items: center; gap: 12px; padding-block: 16px 8px; }
+.top svg { flex: none; }
+.top-text { min-width: 0; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.45rem; margin: 0; letter-spacing: -.01em; }
+.status { margin: 0; color: var(--muted); font-size: .92rem; }
+
+.notice {
+  background: var(--surface-2); border-radius: 10px; padding: 10px 12px;
+  font-size: .9rem; color: var(--muted); margin-block: 8px;
+}
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: 12px; margin-block: 8px 14px; }
+.tabs button {
+  flex: 1; border: 0; background: none; padding: 9px; border-radius: 9px;
+  cursor: pointer; color: var(--muted); font-weight: 700;
+}
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+
+/* Heute */
+.today { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.stat b { display: block; font-family: var(--font-display); font-size: 1.7rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: .82rem; }
+
+/* Verlauf */
+.day-head {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: .78rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin: 20px 4px 8px;
+}
+.entries { display: grid; gap: 8px; }
+.entry {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px; cursor: pointer;
+}
+.thumb {
+  width: 64px; height: 64px; flex: none; border-radius: 10px; object-fit: cover;
+  background: var(--surface-2); display: grid; place-items: center;
+  border: 0; padding: 0; cursor: zoom-in; overflow: hidden;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.empty { cursor: default; color: var(--muted); font-size: .7rem; text-align: center; line-height: 1.2; }
+.entry-main { flex: 1; min-width: 0; }
+.entry-time { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.entry-note { color: var(--muted); font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.3em; }
+.badge { font-family: var(--font-body); font-size: .78rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.badge.pipi { background: color-mix(in srgb, var(--pipi) 26%, transparent); }
+.badge.kacka { background: color-mix(in srgb, var(--kacka) 26%, transparent); }
+.badge.beides { background: color-mix(in srgb, var(--beides) 26%, transparent); }
+
+.empty-state { text-align: center; color: var(--muted); padding: 40px 16px; }
+.empty-state p { margin: 8px 0 0; }
+
+/* Wochenplan */
+.week-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.week-nav strong { font-family: var(--font-display); font-weight: 600; font-variant-numeric: tabular-nums; }
+.icon-btn {
+  border: 0; background: var(--surface-2); width: 40px; height: 40px; border-radius: 50%;
+  font-size: 1.3rem; line-height: 1; cursor: pointer; flex: none;
+}
+.legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: .85rem; margin-bottom: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.dot.pipi, .timeline .pipi { background: var(--pipi); }
+.dot.kacka, .timeline .kacka { background: var(--kacka); }
+.dot.beides, .timeline .beides { background: var(--beides); }
+.week { display: grid; gap: 8px; }
+.wday { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.wday.is-today { border-color: var(--accent); }
+.wday-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.wday-counts { color: var(--muted); font-size: .85rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.timeline {
+  position: relative; height: 28px; margin: 8px 0 2px; border-radius: 6px;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(90deg, transparent calc(25% - 1px), var(--line) calc(25% - 1px) 25%, transparent 25% calc(50% - 1px), var(--line) calc(50% - 1px) 50%, transparent 50% calc(75% - 1px), var(--line) calc(75% - 1px) 75%, transparent 75%);
+}
+.timeline button {
+  position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  border-radius: 50%; border: 2px solid var(--surface); padding: 0; cursor: pointer;
+}
+.timeline-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip {
+  border: 1px solid var(--line); background: var(--bg); border-radius: 999px;
+  padding: 2px 10px; font-size: .85rem; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+
+/* Buttons */
+.fab {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--accent); color: var(--accent-text); border: 0; border-radius: 999px;
+  padding: 14px 22px; font-size: 1.05rem; font-weight: 700; box-shadow: var(--shadow); cursor: pointer;
+}
+.fab:disabled { opacity: .5; cursor: not-allowed; }
+@media (min-width: 720px) { .fab { right: calc(50% - 340px); } }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px;
+  padding: 10px 14px; font-weight: 700; cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--danger); }
+.btn.danger.armed { background: var(--danger); color: var(--surface); border-color: transparent; }
+.btn:disabled { opacity: .6; cursor: progress; }
+
+/* Dialoge */
+dialog {
+  border: 0; border-radius: 18px; padding: 0;
+  width: min(520px, calc(100% - 24px)); max-height: calc(100dvh - 24px);
+  background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+}
+dialog::backdrop { background: var(--backdrop); }
+#entryForm { padding: 18px; display: grid; gap: 14px; }
+#entryForm h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; }
+.types { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.types legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
+.types label { display: flex; cursor: pointer; }
+.types input { position: absolute; opacity: 0; pointer-events: none; }
+.types span {
+  flex: 1; display: grid; place-items: center; text-align: center;
+  padding: 10px 4px; border: 2px solid var(--line); border-radius: 12px; font-weight: 700; font-size: .95rem;
+}
+.types input:checked + span { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.types input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field { display: grid; gap: 6px; }
+.field > span { font-weight: 700; }
+.field small { color: var(--muted); font-weight: 400; }
+.field input[type="datetime-local"], .field textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+}
+textarea { resize: vertical; }
+.photo-box { border: 2px dashed var(--line); border-radius: 12px; padding: 10px; display: grid; gap: 10px; }
+.photo-box img { display: block; width: 100%; max-height: 260px; object-fit: contain; border-radius: 8px; background: var(--surface-2); }
+.photo-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.form-error { color: var(--danger); margin: 0; font-size: .9rem; }
+
+.photo-dialog { padding: 12px; text-align: center; width: min(900px, calc(100% - 24px)); }
+.photo-dialog img { max-width: 100%; max-height: 72dvh; border-radius: 10px; display: block; margin: 0 auto; }
+.photo-dialog p { color: var(--muted); margin: 10px 0; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  transform: translate(-50%, 20px); background: var(--text); color: var(--bg);
+  padding: 10px 16px; border-radius: 999px; opacity: 0; pointer-events: none;
+  transition: opacity .25s, transform .25s; max-width: calc(100% - 32px); text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <svg width="44" height="44" viewBox="0 0 512 512" aria-hidden="true">
+      <rect width="512" height="512" rx="112" fill="var(--surface-2)"/>
+      <g fill="var(--text)"><path d="M136 210 L150 92 L228 168 Z"/><path d="M376 210 L362 92 L284 168 Z"/><ellipse cx="256" cy="268" rx="142" ry="124"/></g>
+      <g fill="var(--surface-2)"><ellipse cx="204" cy="252" rx="18" ry="24"/><ellipse cx="308" cy="252" rx="18" ry="24"/><path d="M244 296 h24 l-12 14 z"/></g>
+      <rect x="96" y="388" width="320" height="44" rx="22" fill="var(--accent)"/>
+    </svg>
+    <div class="top-text">
+      <h1>Ylvis Klo-Plan</h1>
+      <p id="status" class="status">Lade Einträge…</p>
+    </div>
+  </header>
+
+  <p id="notice" class="notice" hidden></p>
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-list" role="tab" data-view="list" aria-selected="true">Verlauf</button>
+    <button id="tab-week" role="tab" data-view="week" aria-selected="false">Wochenplan</button>
+  </nav>
+
+  <section id="view-list">
+    <div class="today" id="todaySummary"></div>
+    <div id="list"></div>
+  </section>
+
+  <section id="view-week" hidden>
+    <div class="week-nav">
+      <button class="icon-btn" id="prevWeek" aria-label="Vorherige Woche">‹</button>
+      <strong id="weekLabel"></strong>
+      <button class="icon-btn" id="nextWeek" aria-label="Nächste Woche">›</button>
+    </div>
+    <div class="legend">
+      <span><i class="dot pipi"></i>Pipi</span>
+      <span><i class="dot kacka"></i>Kacka</span>
+      <span><i class="dot beides"></i>Beides</span>
+    </div>
+    <div id="week" class="week"></div>
+  </section>
+</div>
+
+<button id="addBtn" class="fab" disabled>＋ Eintrag</button>
+
+<dialog id="entryDialog">
+  <form id="entryForm">
+    <h2 id="formTitle">Neuer Eintrag</h2>
+    <fieldset class="types">
+      <legend>Was war's?</legend>
+      <label><input id="type-pipi" type="radio" name="type" value="pipi" checked><span>💧 Pipi</span></label>
+      <label><input id="type-kacka" type="radio" name="type" value="kacka"><span>💩 Kacka</span></label>
+      <label><input id="type-beides" type="radio" name="type" value="beides"><span>💧💩 Beides</span></label>
+    </fieldset>
+    <label class="field">
+      <span>Wann?</span>
+      <input id="timeInput" type="datetime-local" name="time" required>
+    </label>
+    <div class="field" id="photoField">
+      <span>Beweisfoto</span>
+      <div class="photo-box">
+        <img id="photoPreview" alt="Vorschau Beweisfoto" hidden>
+        <div class="photo-actions">
+          <label class="btn">📷 Foto aufnehmen
+            <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+          </label>
+          <label class="btn ghost">🖼️ Aus Galerie
+            <input id="galleryInput" type="file" accept="image/*" hidden>
+          </label>
+          <button type="button" id="removePhoto" class="btn ghost danger" hidden>Foto entfernen</button>
+        </div>
+      </div>
+    </div>
+    <label class="field">
+      <span>Notiz <small>(optional)</small></span>
+      <textarea id="noteInput" name="note" rows="2" placeholder="z. B. Konsistenz, Menge, Auffälligkeiten"></textarea>
+    </label>
+    <p id="formError" class="form-error" hidden></p>
+    <div class="form-actions">
+      <button type="button" id="deleteBtn" class="btn ghost danger" hidden>Löschen</button>
+      <span class="spacer"></span>
+      <button type="button" id="cancelBtn" class="btn ghost">Abbrechen</button>
+      <button type="submit" id="saveBtn" class="btn primary">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="photoDialog" class="photo-dialog">
+  <img id="photoLarge" alt="Beweisfoto">
+  <p id="photoCaption"></p>
+  <button id="closePhoto" class="btn" type="button">Schließen</button>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const TYPES = {
+  pipi:   { label: 'Pipi',   icon: '💧' },
+  kacka:  { label: 'Kacka',  icon: '💩' },
+  beides: { label: 'Beides', icon: '💧💩' },
+};
+const PHOTO_MAX_SIDE = 1600;
+const PHOTO_QUALITY = 0.82;
+
+const $ = (s) => document.querySelector(s);
+const pad = (n) => String(n).padStart(2, '0');
+const toLocalInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+function fromLocalInput(str) {
+  const [date, time] = str.split('T');
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  return new Date(y, m - 1, d, h, min);
+}
+const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const startOfWeek = (d) => { const x = startOfDay(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const dayKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fmtTime = (d) => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+const fmtDayLong = (d) => d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+const fmtDayShort = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const photoSrc = (id) => '/_blob/' + id;
+
+function dayTitle(d) {
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
+  if (diff === 0) return 'Heute';
+  if (diff === 1) return 'Gestern';
+  return fmtDayLong(d);
+}
+function ago(ms) {
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min.`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `vor ${h} Std.${min % 60 ? ` ${min % 60} Min.` : ''}`;
+  const days = Math.floor(h / 24);
+  return `vor ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
+}
+function countTypes(list) {
+  const c = { pipi: 0, kacka: 0 };
+  for (const e of list) {
+    if (e.type !== 'kacka') c.pipi++;
+    if (e.type !== 'pipi') c.kacka++;
+  }
+  return c;
+}
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function notice(msg) { const n = $('#notice'); n.textContent = msg || ''; n.hidden = !msg; }
+
+/* ---------- Zustand ---------- */
+const state = { entries: [], loaded: false, view: 'list', weekStart: startOfWeek(new Date()) };
+let db = null, assets = null, entriesCol = null;
+
+/* ---------- Darstellung ---------- */
+function render() {
+  renderStatus();
+  if (state.view === 'list') renderList(); else renderWeek();
+}
+function renderStatus() {
+  const el = $('#status');
+  if (!state.loaded) { el.textContent = 'Lade Einträge…'; return; }
+  const now = Date.now();
+  const past = state.entries.filter((e) => e.time <= now);
+  const last = past[0];
+  if (!last) { el.textContent = 'Noch keine Einträge'; return; }
+  const lastKacka = past.find((e) => e.type !== 'pipi');
+  let txt = `Zuletzt ${TYPES[last.type].icon} ${ago(now - last.time)}`;
+  if (lastKacka && lastKacka !== last) txt += ` · 💩 ${ago(now - lastKacka.time)}`;
+  el.textContent = txt;
+}
+function renderList() {
+  const t0 = startOfDay(new Date()).getTime();
+  const todays = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000);
+  const c = countTypes(todays);
+  $('#todaySummary').innerHTML = `
+    <div class="stat"><b>${c.pipi}</b><span>💧 Pipi heute</span></div>
+    <div class="stat"><b>${c.kacka}</b><span>💩 Kacka heute</span></div>
+    <div class="stat"><b>${state.entries.filter((e) => e.photo).length}</b><span>📷 Beweisfotos</span></div>`;
+  const list = $('#list');
+  if (!state.entries.length) {
+    list.innerHTML = `<div class="empty-state"><div style="font-size:3rem">🐱</div>
+      <p>${state.loaded ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi auf dem Klo war.' : 'Einträge werden geladen…'}</p></div>`;
+    return;
+  }
+  const groups = new Map();
+  for (const e of state.entries) {
+    const k = dayKey(new Date(e.time));
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(e);
+  }
+  let html = '';
+  for (const items of groups.values()) {
+    const gc = countTypes(items);
+    html += `<div class="day-head"><span>${esc(dayTitle(new Date(items[0].time)))}</span><span>💧 ${gc.pipi} · 💩 ${gc.kacka}</span></div><div class="entries">`;
+    for (const e of items) {
+      const t = TYPES[e.type];
+      const thumb = e.photo
+        ? `<button class="thumb" data-photo="${esc(e.id)}" aria-label="Beweisfoto vergrößern"><img src="${photoSrc(e.photo)}" alt="" loading="lazy"></button>`
+        : `<span class="thumb empty">kein<br>Foto</span>`;
+      html += `<div class="entry" role="button" tabindex="0" data-edit="${esc(e.id)}">
+          ${thumb}
+          <div class="entry-main">
+            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge ${e.type}">${t.icon} ${t.label}</span></div>
+            <div class="entry-note">${e.note ? esc(e.note) : ''}</div>
+          </div>
+        </div>`;
+    }
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+function renderWeek() {
+  const start = state.weekStart;
+  $('#weekLabel').textContent =
+    `${start.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ` +
+    `${addDays(start, 6).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+  const todayKey = dayKey(new Date());
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const day = addDays(start, i);
+    const from = day.getTime(), to = addDays(day, 1).getTime();
+    const items = state.entries.filter((e) => e.time >= from && e.time < to).sort((a, b) => a.time - b.time);
+    const c = countTypes(items);
+    const dots = items.map((e) => {
+      const d = new Date(e.time);
+      const pct = ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100;
+      const lbl = `${fmtTime(d)} ${TYPES[e.type].label}`;
+      return `<button class="${e.type}" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
+    }).join('');
+    const chips = items.map((e) =>
+      `<button class="chip" data-edit="${esc(e.id)}">${TYPES[e.type].icon} ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}</button>`).join('');
+    html += `<div class="wday${dayKey(day) === todayKey ? ' is-today' : ''}">
+        <div class="wday-head"><strong>${esc(fmtDayShort(day))}</strong>
+          <span class="wday-counts">${items.length ? `💧 ${c.pipi} · 💩 ${c.kacka}` : '–'}</span></div>
+        <div class="timeline">${dots}</div>
+        <div class="timeline-scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
+        ${chips ? `<div class="chips">${chips}</div>` : ''}
+      </div>`;
+  }
+  $('#week').innerHTML = html;
+}
+
+/* ---------- Fotos ---------- */
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Das Bild konnte nicht gelesen werden. Bitte ein anderes Foto wählen.'));
+      i.src = url;
+    });
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', PHOTO_QUALITY));
+    if (!blob) throw new Error('Das Foto konnte nicht verarbeitet werden.');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/* ---------- Formular ---------- */
+const dlg = $('#entryDialog');
+const form = $('#entryForm');
+let editing = null;
+let pendingPhoto;          // undefined = unverändert, null = entfernt, Blob = neu
+let previewUrl = null;
+let deleteArmed = false;
+
+function setPreview(src) {
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  const img = $('#photoPreview');
+  if (src instanceof Blob) { previewUrl = URL.createObjectURL(src); src = previewUrl; }
+  if (src) { img.src = src; img.hidden = false; } else { img.removeAttribute('src'); img.hidden = true; }
+  $('#removePhoto').hidden = !src;
+}
+function setDeleteArmed(on) {
+  deleteArmed = on;
+  const b = $('#deleteBtn');
+  b.textContent = on ? 'Wirklich löschen?' : 'Löschen';
+  b.classList.toggle('armed', on);
+}
+function formError(msg) { const e = $('#formError'); e.textContent = msg || ''; e.hidden = !msg; }
+function openForm(entry = null) {
+  editing = entry;
+  pendingPhoto = undefined;
+  form.reset();
+  formError('');
+  setDeleteArmed(false);
+  $('#formTitle').textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
+  $('#deleteBtn').hidden = !entry;
+  $('#timeInput').value = toLocalInput(entry ? new Date(entry.time) : new Date());
+  form.querySelector(`input[name=type][value=${entry ? entry.type : 'pipi'}]`).checked = true;
+  $('#noteInput').value = entry?.note || '';
+  $('#photoField').hidden = !assets && !entry?.photo;
+  $('#cameraInput').closest('.photo-actions').hidden = !assets;
+  setPreview(entry?.photo ? photoSrc(entry.photo) : null);
+  $('#saveBtn').disabled = false;
+  dlg.showModal();
+}
+function closeForm() { if (dlg.open) dlg.close(); setPreview(null); editing = null; }
+
+async function handlePhotoInput(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    pendingPhoto = await compressImage(file);
+    setPreview(pendingPhoto);
+    formError('');
+  } catch (err) { formError(err.message); }
+}
+
+function errText(err) {
+  const code = err && err.code;
+  if (code === 'quota_exceeded' || code === 'quota_or_state') return 'Der Speicher ist voll. Lösche alte Einträge oder Fotos und versuche es erneut.';
+  if (code === 'too_large') return 'Das Foto ist zu groß. Bitte ein kleineres Foto wählen.';
+  if (code === 'rate_limited' || code === 'resource_exhausted') return 'Zu viele Anfragen auf einmal. Bitte kurz warten und erneut speichern.';
+  if (code === 'not_granted' || code === 'revoked') return 'Du hast in dieser Ansicht keine Berechtigung zum Speichern.';
+  return 'Speichern hat nicht geklappt. Prüfe die Internetverbindung und versuche es erneut.';
+}
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!db || !$('#timeInput').value) return;
+  const saveBtn = $('#saveBtn');
+  saveBtn.disabled = true;
+  formError('');
+  const oldPhoto = editing?.photo || null;
+  let photo = oldPhoto;
+  try {
+    if (pendingPhoto instanceof Blob) {
+      photo = (await assets.upload(pendingPhoto, { type: 'image/jpeg' })).id;
+    } else if (pendingPhoto === null) {
+      photo = null;
+    }
+    const data = {
+      time: fromLocalInput($('#timeInput').value).getTime(),
+      type: form.querySelector('input[name=type]:checked').value,
+      note: $('#noteInput').value.trim().slice(0, 500),
+      photo,
+      created: editing ? (editing.created || Date.now()) : Date.now(),
+    };
+    const ref = editing ? entriesCol.doc(editing.id) : entriesCol.doc();
+    await ref.set(data);
+    if (oldPhoto && oldPhoto !== photo && assets) assets.delete(oldPhoto).catch(() => {});
+    const wasNew = !editing;
+    closeForm();
+    toast(wasNew ? (photo ? 'Eintrag mit Beweisfoto gespeichert' : 'Eintrag gespeichert') : 'Änderungen gespeichert');
+  } catch (err) {
+    formError(errText(err));
+    saveBtn.disabled = false;
+  }
+});
+$('#cameraInput').addEventListener('change', handlePhotoInput);
+$('#galleryInput').addEventListener('change', handlePhotoInput);
+$('#removePhoto').addEventListener('click', () => { pendingPhoto = null; setPreview(null); });
+$('#cancelBtn').addEventListener('click', closeForm);
+dlg.addEventListener('close', () => setPreview(null));
+$('#deleteBtn').addEventListener('click', async () => {
+  if (!editing || !db) return;
+  if (!deleteArmed) { setDeleteArmed(true); return; }
+  const entry = editing;
+  try {
+    await entriesCol.doc(entry.id).delete();
+    if (entry.photo && assets) assets.delete(entry.photo).catch(() => {});
+    closeForm();
+    toast('Eintrag gelöscht');
+  } catch (err) {
+    formError('Löschen hat nicht geklappt. Bitte erneut versuchen.');
+    setDeleteArmed(false);
+  }
+});
+
+/* ---------- Foto groß ---------- */
+function showPhoto(entry) {
+  $('#photoLarge').src = photoSrc(entry.photo);
+  const d = new Date(entry.time);
+  $('#photoCaption').textContent = `${TYPES[entry.type].icon} ${TYPES[entry.type].label} · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr`;
+  $('#photoDialog').showModal();
+}
+$('#closePhoto').addEventListener('click', () => $('#photoDialog').close());
+$('#photoDialog').addEventListener('click', (e) => { if (e.target === $('#photoDialog')) $('#photoDialog').close(); });
+
+/* ---------- Klicks ---------- */
+const findEntry = (id) => state.entries.find((e) => e.id === id);
+document.addEventListener('click', (ev) => {
+  const p = ev.target.closest('[data-photo]');
+  if (p) { const e = findEntry(p.dataset.photo); if (e) showPhoto(e); return; }
+  const ed = ev.target.closest('[data-edit]');
+  if (ed && db) { const e = findEntry(ed.dataset.edit); if (e) openForm(e); }
+});
+document.addEventListener('keydown', (ev) => {
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('.entry[data-edit]') && db) {
+    ev.preventDefault();
+    const e = findEntry(ev.target.dataset.edit);
+    if (e) openForm(e);
+  }
+});
+$('#addBtn').addEventListener('click', () => openForm());
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+  state.view = b.dataset.view;
+  document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  $('#view-list').hidden = state.view !== 'list';
+  $('#view-week').hidden = state.view !== 'week';
+  render();
+}));
+$('#prevWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, -7); renderWeek(); });
+$('#nextWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, 7); renderWeek(); });
+
+/* ---------- Start ---------- */
+render();
+setInterval(renderStatus, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+
+(async () => {
+  const api = window.claude && window.claude.use ? window.claude : null;
+  if (!api) {
+    state.loaded = true; render();
+    notice('Diese Seite speichert nur, wenn sie über ihren claude.ai-Link geöffnet wird.');
+    return;
+  }
+  [db, assets] = await Promise.all([api.use('db'), api.use('assets')]);
+  if (!db) {
+    state.loaded = true; render();
+    notice('Speichern ist in dieser Ansicht nicht möglich. Öffne die App angemeldet über ihren claude.ai-Link.');
+    return;
+  }
+  if (!assets) notice('Fotos hochladen können nur Personen mit Bearbeitungsrecht. Einträge ohne Foto gehen trotzdem.');
+  $('#addBtn').disabled = false;
+  entriesCol = db.collection('entries');
+  const slow = setTimeout(() => notice('Die Einträge lassen sich gerade nicht laden. Prüfe die Internetverbindung, die App versucht es weiter.'), 10000);
+  entriesCol.orderBy('time', 'desc').onSnapshot((snap) => {
+    if (!snap.metadata.fromCache) { clearTimeout(slow); if ($('#notice').textContent.startsWith('Die Einträge')) notice(''); }
+    state.entries = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .filter((e) => TYPES[e.type] && typeof e.time === 'number');
+    state.loaded = true;
+    render();
+  }, (err) => {
+    clearTimeout(slow);
+    state.loaded = true;
+    render();
+    notice('Die Verbindung zum Speicher wurde beendet. Lade die Seite neu, um weiterzumachen.');
+  });
+})();
+</script>
