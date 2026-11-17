@@ -396,3 +396,19 @@ textarea { resize: vertical; }
 .screen > .muted { margin-bottom: 18px; }
 .migrate { display: grid; gap: 10px; color: var(--text); }
 .migrate p { margin: 0; }
+
+/* ---------- PDF-Export ---------- */
+.pdf-btn { width: 100%; margin-top: 8px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets .chip { padding: 6px 12px; }
+.presets .chip[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field input[type="date"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }

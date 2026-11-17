@@ -85,6 +85,7 @@
           <span><i class="dot beides"></i>Beides</span>
         </div>
         <div id="week"></div>
+        <button id="pdfBtn" type="button" class="btn pdf-btn">📄 Als PDF für den Tierarzt</button>
       </section>
     </main>
 
@@ -172,6 +173,37 @@
     </form>
   </dialog>
 
+  <!-- PDF-Export -->
+  <dialog id="pdfDialog">
+    <form id="pdfForm" class="stack pad">
+      <h2>PDF für den Tierarzt</h2>
+      <p class="muted">Die Wochenübersicht für den gewählten Zeitraum, Woche für Woche, mit Zusammenfassung oben.</p>
+      <div class="field">
+        <span>Zeitraum</span>
+        <div class="presets" role="group" aria-label="Schnellauswahl">
+          <button type="button" class="chip" data-weeks="1">Diese Woche</button>
+          <button type="button" class="chip" data-weeks="2">2 Wochen</button>
+          <button type="button" class="chip" data-weeks="4">4 Wochen</button>
+          <button type="button" class="chip" data-weeks="8">8 Wochen</button>
+        </div>
+      </div>
+      <div class="date-row">
+        <label class="field"><span>Von</span><input id="pdfFrom" type="date" required></label>
+        <label class="field"><span>Bis</span><input id="pdfTo" type="date" required></label>
+      </div>
+      <p id="pdfRange" class="muted small"></p>
+      <label class="check"><input id="pdfNotes" type="checkbox" checked> Notizen als Liste anhängen</label>
+      <label class="check"><input id="pdfPhotos" type="checkbox"> Beweisfotos anhängen <small id="pdfPhotoCount" class="muted"></small></label>
+      <p id="pdfError" class="form-error" hidden></p>
+      <p id="pdfProgress" class="muted small" hidden></p>
+      <div class="form-actions">
+        <span class="spacer"></span>
+        <button type="button" id="pdfCancel" class="btn ghost">Abbrechen</button>
+        <button type="submit" id="pdfCreate" class="btn primary">PDF erstellen</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Foto groß anzeigen -->
   <dialog id="photoDialog" class="photo-dialog">
     <img id="photoLarge" alt="Beweisfoto">
@@ -183,6 +215,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
+  <script src="pdf-export.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

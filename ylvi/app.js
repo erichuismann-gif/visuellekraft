@@ -582,6 +582,154 @@ document.querySelectorAll('.tabs button').forEach((b) => {
 $('#prevWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, -7); renderWeek(); });
 $('#nextWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, 7); renderWeek(); });
 
+/* ---------- PDF für den Tierarzt ---------- */
+const pdfDlg = $('#pdfDialog');
+let pdfResult = null; // { blob, filename } nach dem Erstellen
+
+const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function fromDateInput(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function pdfRange() {
+  const fromV = $('#pdfFrom').value;
+  const toV = $('#pdfTo').value;
+  if (!fromV || !toV) return null;
+  let from = startOfWeek(fromDateInput(fromV));
+  let to = startOfWeek(fromDateInput(toV));
+  if (to < from) [from, to] = [to, from];
+  return { from, to, end: addDays(to, 7) };
+}
+function updatePdfInfo() {
+  const r = pdfRange();
+  document.querySelectorAll('.presets .chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+  if (!r) { $('#pdfRange').textContent = ''; return; }
+  const weeks = Math.round((r.end - r.from) / (7 * 86400000));
+  const inRange = state.entries.filter((e) => e.time >= r.from.getTime() && e.time < r.end.getTime());
+  const photos = inRange.filter((e) => e.photo).length;
+  $('#pdfRange').textContent =
+    `${weeks} ${weeks === 1 ? 'Woche' : 'Wochen'}: Mo ${r.from.toLocaleDateString('de-DE')} bis So ${addDays(r.end, -1).toLocaleDateString('de-DE')} · ${inRange.length} Einträge`;
+  $('#pdfPhotoCount').textContent = photos ? `(${photos} Fotos)` : '(keine im Zeitraum)';
+  $('#pdfPhotos').disabled = !photos;
+  const thisWeek = startOfWeek(new Date()).getTime();
+  if (r.to.getTime() === thisWeek) {
+    const chip = document.querySelector(`.presets .chip[data-weeks="${weeks}"]`);
+    if (chip) chip.setAttribute('aria-pressed', 'true');
+  }
+  resetPdfResult();
+}
+function setPdfWeeks(weeks) {
+  const thisWeek = startOfWeek(new Date());
+  $('#pdfFrom').value = toDateInput(addDays(thisWeek, -7 * (weeks - 1)));
+  $('#pdfTo').value = toDateInput(addDays(thisWeek, 6));
+  updatePdfInfo();
+}
+function resetPdfResult() {
+  pdfResult = null;
+  $('#pdfCreate').textContent = 'PDF erstellen';
+  $('#pdfCreate').disabled = false;
+  showError($('#pdfProgress'), '');
+}
+
+$('#pdfBtn').addEventListener('click', () => {
+  showError($('#pdfError'), '');
+  // Standard: die aktuell angezeigte Woche und die drei davor
+  const shownWeek = state.weekStart;
+  $('#pdfFrom').value = toDateInput(addDays(shownWeek, -21));
+  $('#pdfTo').value = toDateInput(addDays(shownWeek, 6));
+  updatePdfInfo();
+  pdfDlg.showModal();
+  YlviPdf.loadLib().catch(() => {}); // schon mal vorladen
+});
+document.querySelectorAll('.presets .chip').forEach((c) => c.addEventListener('click', () => setPdfWeeks(Number(c.dataset.weeks))));
+$('#pdfFrom').addEventListener('change', updatePdfInfo);
+$('#pdfTo').addEventListener('change', updatePdfInfo);
+$('#pdfNotes').addEventListener('change', resetPdfResult);
+$('#pdfPhotos').addEventListener('change', resetPdfResult);
+$('#pdfCancel').addEventListener('click', () => pdfDlg.close());
+pdfDlg.addEventListener('close', resetPdfResult);
+
+async function getPhotoBlob(entry) {
+  if (!entry.photo) return null;
+  if (mode === 'local') {
+    const rec = await localDb.get(entry.id);
+    return rec && rec.photo instanceof Blob ? rec.photo : null;
+  }
+  await refreshSignedUrls();
+  const url = photoUrl(entry.photo);
+  if (!url) return null;
+  const res = await fetch(url);
+  return res.ok ? res.blob() : null;
+}
+
+function canSharePdf(file) {
+  return matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] });
+}
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+$('#pdfForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = $('#pdfCreate');
+  showError($('#pdfError'), '');
+
+  // Zweiter Schritt: fertiges PDF teilen bzw. herunterladen
+  if (pdfResult) {
+    const file = new File([pdfResult.blob], pdfResult.filename, { type: 'application/pdf' });
+    if (canSharePdf(file)) {
+      try {
+        await navigator.share({ files: [file], title: 'Ylvis Klo-Plan' });
+        pdfDlg.close();
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+    }
+    downloadBlob(pdfResult.blob, pdfResult.filename);
+    toast('PDF gespeichert ✓');
+    pdfDlg.close();
+    return;
+  }
+
+  const r = pdfRange();
+  if (!r) return;
+  const weeks = Math.round((r.end - r.from) / (7 * 86400000));
+  if (weeks > 104) { showError($('#pdfError'), 'Bitte höchstens 2 Jahre auf einmal exportieren.'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Wird erstellt…';
+  const prog = $('#pdfProgress');
+  showError(prog, 'PDF wird erstellt…');
+  try {
+    const result = await YlviPdf.create(state.entries, {
+      from: r.from,
+      to: r.to,
+      includeNotes: $('#pdfNotes').checked,
+      includePhotos: $('#pdfPhotos').checked && !$('#pdfPhotos').disabled,
+      getPhotoBlob,
+      onProgress: (t) => showError(prog, t),
+    });
+    pdfResult = result;
+    const kb = Math.max(1, Math.round(result.blob.size / 1024));
+    const size = kb > 1024 ? `${(kb / 1024).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB` : `${kb} KB`;
+    showError(prog, `Fertig: ${result.filename} (${size})`);
+    const file = new File([result.blob], result.filename, { type: 'application/pdf' });
+    btn.textContent = canSharePdf(file) ? 'PDF teilen' : 'PDF herunterladen';
+    btn.disabled = false;
+  } catch (err) {
+    showError(prog, '');
+    showError($('#pdfError'), err && err.message ? err.message : 'Das PDF konnte nicht erstellt werden.');
+    btn.textContent = 'PDF erstellen';
+    btn.disabled = false;
+  }
+});
+
 /* ---------- Anmeldung ---------- */
 $('#loginForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();

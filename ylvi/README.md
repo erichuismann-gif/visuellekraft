@@ -9,6 +9,7 @@ Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge er
 - **Verlauf**: alle Einträge nach Tagen, mit Vorschaubild und Namen der Person, die eingetragen hat
 - **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste, Woche vor/zurück blättern
 - **Status oben**: wie lange der letzte Besuch (und das letzte Kacka) her ist
+- **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Zusammenfassung (Anzahl, Ø pro Tag, längste Pausen), optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar (z. B. per Mail oder WhatsApp).
 - **Live**: Trägt eine Person etwas ein, sieht die andere es sofort
 
 ## Sofort loslegen – ohne Datenbank
