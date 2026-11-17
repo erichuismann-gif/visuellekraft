@@ -101,8 +101,46 @@ function showScreen(name) {
   if (name !== 'app') $('#menu').hidden = true;
 }
 
+/* ---------- Lokaler Speicher (IndexedDB) ----------
+   Wird genutzt, solange keine Datenbank eingerichtet ist. */
+const localDb = (() => {
+  let dbPromise;
+  function open() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open('ylvi-klo', 1);
+        req.onupgradeneeded = () => {
+          const store = req.result.createObjectStore('entries', { keyPath: 'id' });
+          store.createIndex('time', 'time');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    return dbPromise;
+  }
+  async function tx(mode, fn) {
+    const d = await open();
+    return new Promise((resolve, reject) => {
+      const t = d.transaction('entries', mode);
+      const req = fn(t.objectStore('entries'));
+      t.oncomplete = () => resolve(req ? req.result : undefined);
+      t.onerror = () => reject(t.error);
+      t.onabort = () => reject(t.error);
+    });
+  }
+  return {
+    all: () => tx('readonly', (s) => s.getAll()),
+    get: (id) => tx('readonly', (s) => s.get(id)),
+    put: (rec) => tx('readwrite', (s) => s.put(rec)),
+    remove: (id) => tx('readwrite', (s) => s.delete(id)),
+  };
+})();
+const localPhotoUrls = new Map(); // 'local:<id>' -> Objekt-URL
+
 /* ---------- Verbindung ---------- */
 const cfg = window.YLVI_CONFIG || {};
+let mode = 'cloud';  // 'local' = nur auf diesem Gerät, 'cloud' = gemeinsame Datenbank
 let sb = null;
 let me = null;       // angemeldete Person
 let channel = null;
@@ -127,6 +165,12 @@ let reloadAgain = false;
 async function loadEntries() {
   if (loading) { reloadAgain = true; return loading; }
   loading = (async () => {
+    if (mode === 'local') {
+      await loadLocalEntries();
+      state.loaded = true;
+      render();
+      return;
+    }
     const { data, error } = await sb
       .from(TABLE)
       .select('id,time,type,note,photo_path,author,created_at')
@@ -160,6 +204,23 @@ async function loadEntries() {
   }
 }
 
+async function loadLocalEntries() {
+  const rows = await localDb.all();
+  for (const u of localPhotoUrls.values()) URL.revokeObjectURL(u);
+  localPhotoUrls.clear();
+  state.entries = rows
+    .filter((r) => TYPES[r.type] && typeof r.time === 'number')
+    .sort((a, b) => b.time - a.time)
+    .map((r) => {
+      let photo = null;
+      if (r.photo instanceof Blob) {
+        photo = 'local:' + r.id;
+        localPhotoUrls.set(photo, URL.createObjectURL(r.photo));
+      }
+      return { id: r.id, time: r.time, type: r.type, note: r.note || '', photo, author: '' };
+    });
+}
+
 async function refreshSignedUrls() {
   const now = Date.now();
   const missing = [...new Set(state.entries.map((e) => e.photo).filter(Boolean))]
@@ -173,7 +234,11 @@ async function refreshSignedUrls() {
     }
   }
 }
-const photoUrl = (path) => (path && signedUrls.get(path)?.url) || null;
+function photoUrl(path) {
+  if (!path) return null;
+  if (path.startsWith('local:')) return localPhotoUrls.get(path) || null;
+  return signedUrls.get(path)?.url || null;
+}
 
 let reloadTimer = null;
 function scheduleReload() {
@@ -200,7 +265,7 @@ function render() {
 
 function renderStatus() {
   const el = $('#status');
-  if (!me) { el.textContent = 'Klo-Tagebuch für Ylvi'; return; }
+  if (!me && mode !== 'local') { el.textContent = 'Klo-Tagebuch für Ylvi'; return; }
   if (!state.loaded) { el.textContent = 'Einträge werden geladen…'; return; }
   const now = Date.now();
   const past = state.entries.filter((e) => e.time <= now);
@@ -383,6 +448,31 @@ form.addEventListener('submit', async (ev) => {
   let photoPath = oldPhoto;
   let uploaded = null;
 
+  if (mode === 'local') {
+    try {
+      const prev = editing ? await localDb.get(id) : null;
+      const photo = pendingPhoto instanceof Blob ? pendingPhoto
+        : pendingPhoto === null ? null
+        : (prev && prev.photo) || null;
+      await localDb.put({
+        id,
+        created: prev ? prev.created : Date.now(),
+        time: fromLocalInput(form.time.value).getTime(),
+        type: form.type.value,
+        note: form.note.value.trim().slice(0, 500),
+        photo,
+      });
+      const wasNew = !editing;
+      closeForm();
+      toast(wasNew ? (photo ? 'Eintrag mit Beweisfoto gespeichert ✓' : 'Eintrag gespeichert ✓') : 'Änderungen gespeichert ✓');
+      await loadEntries();
+    } catch (err) {
+      showError($('#formError'), 'Speichern auf dem Handy hat nicht geklappt: ' + (err?.message || err));
+      saveBtn.disabled = false;
+    }
+    return;
+  }
+
   try {
     if (pendingPhoto instanceof Blob) {
       uploaded = `${id}/${Date.now()}.jpg`;
@@ -425,8 +515,21 @@ $('#cancelBtn').addEventListener('click', closeForm);
 dlg.addEventListener('close', () => setPreview(null));
 
 $('#deleteBtn').addEventListener('click', async () => {
-  if (!editing || !confirm('Diesen Eintrag wirklich löschen? Das gilt auch für alle anderen.')) return;
+  const question = mode === 'local'
+    ? 'Diesen Eintrag wirklich löschen?'
+    : 'Diesen Eintrag wirklich löschen? Das gilt auch für alle anderen.';
+  if (!editing || !confirm(question)) return;
   const entry = editing;
+  if (mode === 'local') {
+    try { await localDb.remove(entry.id); } catch (err) {
+      showError($('#formError'), 'Löschen hat nicht geklappt: ' + (err?.message || err));
+      return;
+    }
+    closeForm();
+    toast('Eintrag gelöscht');
+    await loadEntries();
+    return;
+  }
   const { error } = await sb.from(TABLE).delete().eq('id', entry.id);
   if (error) { showError($('#formError'), friendlyError(error)); return; }
   if (entry.photo) sb.storage.from(BUCKET).remove([entry.photo]).catch(() => {});
@@ -548,25 +651,93 @@ function onSignedIn(user) {
     render();
     loadEntries();
     subscribeLive();
+    checkLocalEntries();
     if (!(user.user_metadata && user.user_metadata.name)) askName();
   }
 }
+
+/* ---------- Lokale Einträge in die Datenbank übernehmen ---------- */
+const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+async function checkLocalEntries() {
+  let rows = [];
+  try { rows = await localDb.all(); } catch { /* kein lokaler Speicher */ }
+  const box = $('#migrateBox');
+  if (!rows.length) { box.hidden = true; return; }
+  $('#migrateText').textContent = rows.length === 1
+    ? 'Auf diesem Handy liegt noch 1 Eintrag aus der Zeit ohne Datenbank.'
+    : `Auf diesem Handy liegen noch ${rows.length} Einträge aus der Zeit ohne Datenbank.`;
+  $('#migrateBtn').disabled = false;
+  box.hidden = false;
+}
+
+$('#migrateBtn').addEventListener('click', async () => {
+  const btn = $('#migrateBtn');
+  btn.disabled = true;
+  let rows;
+  try { rows = await localDb.all(); } catch (err) { $('#migrateText').textContent = friendlyError(err); return; }
+  let done = 0;
+  for (const r of rows) {
+    $('#migrateText').textContent = `Übernehme Einträge… ${done} von ${rows.length}`;
+    const id = isUuid(r.id) ? r.id : uid();
+    let path = null;
+    try {
+      if (r.photo instanceof Blob) {
+        path = `${id}/${r.created || r.time}.jpg`;
+        const { error } = await sb.storage.from(BUCKET)
+          .upload(path, r.photo, { contentType: r.photo.type || 'image/jpeg', upsert: true });
+        if (error) throw error;
+      }
+      const { error } = await sb.from(TABLE).upsert({
+        id,
+        time: new Date(r.time).toISOString(),
+        type: r.type,
+        note: (r.note || '').slice(0, 500),
+        photo_path: path,
+        author: myName(),
+      });
+      if (error) throw error;
+      await localDb.remove(r.id);
+      done++;
+    } catch (err) {
+      $('#migrateText').textContent = `${done} von ${rows.length} übernommen. Fehler: ${friendlyError(err)} Tippe erneut auf „Übernehmen“.`;
+      btn.disabled = false;
+      await loadEntries();
+      return;
+    }
+  }
+  $('#migrateBox').hidden = true;
+  toast(`${done} Einträge übernommen ✓`);
+  await loadEntries();
+});
 function onSignedOut() {
   me = null;
   unsubscribeLive();
   state.entries = [];
   state.loaded = false;
   signedUrls.clear();
+  $('#migrateBox').hidden = true;
   $('#loginPassword').value = '';
   showScreen('login');
   renderStatus();
 }
 
 /* ---------- Start ---------- */
+function startLocal() {
+  mode = 'local';
+  showScreen('app');
+  $('#menuBtn').hidden = true;
+  $('#localHint').hidden = false;
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  render();
+  loadEntries();
+  setInterval(renderStatus, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+}
+
 function start() {
   if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
-    showScreen('setup');
-    $('#status').textContent = 'Einrichtung fehlt';
+    startLocal();
     return;
   }
   if (!window.supabase || !window.supabase.createClient) {

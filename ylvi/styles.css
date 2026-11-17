@@ -36,6 +36,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body { margin: 0; }
 
@@ -393,3 +394,5 @@ textarea { resize: vertical; }
 .btn:disabled { opacity: .6; cursor: progress; }
 .photo-dialog .btn { margin-bottom: 4px; }
 .screen > .muted { margin-bottom: 18px; }
+.migrate { display: grid; gap: 10px; color: var(--text); }
+.migrate p { margin: 0; }

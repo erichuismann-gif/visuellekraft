@@ -61,7 +61,12 @@
     </nav>
 
     <main>
+      <p id="localHint" class="notice" hidden>📱 Die Einträge werden nur auf diesem Handy gespeichert. Sobald die gemeinsame Datenbank eingerichtet ist, kannst du sie dorthin übernehmen.</p>
       <p id="notice" class="notice" hidden></p>
+      <div id="migrateBox" class="notice migrate" hidden>
+        <p id="migrateText"></p>
+        <button id="migrateBtn" type="button" class="btn primary">In die gemeinsame Datenbank übernehmen</button>
+      </div>
 
       <section id="view-list" class="view">
         <div class="today" id="todaySummary"></div>

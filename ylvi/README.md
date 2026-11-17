@@ -11,6 +11,15 @@ Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge er
 - **Status oben**: wie lange der letzte Besuch (und das letzte Kacka) her ist
 - **Live**: Trägt eine Person etwas ein, sieht die andere es sofort
 
+## Sofort loslegen – ohne Datenbank
+Solange in `config.js` nichts eingetragen ist, läuft die App im **lokalen Modus**:
+Alles wird nur auf dem jeweiligen Handy gespeichert. Dafür reicht Schritt 6 der Einrichtung (GitHub Pages).
+Jedes Handy hat dann seine eigenen Einträge. Ihr seht die Einträge der anderen Person also noch nicht.
+
+Sobald die Datenbank eingerichtet ist (Schritte 1–5), meldet ihr euch an. Die App bietet dann an,
+die lokalen Einträge samt Fotos **in die gemeinsame Datenbank zu übernehmen**. Danach sind sie auf dem Handy gelöscht
+und liegen nur noch in der Datenbank.
+
 ## Aufbau
 - Die App selbst (HTML/CSS/JS) liegt auf **GitHub Pages**.
 - Einträge und Fotos liegen in einer kostenlosen **Supabase**-Datenbank.
