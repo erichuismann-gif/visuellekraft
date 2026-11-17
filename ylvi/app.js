@@ -7,6 +7,35 @@
    Mit config.js: gemeinsame Supabase-Datenbank für mehrere Personen.
    ========================================================= */
 
+/* ---------- Versionsprüfung ----------
+   Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
+   mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
+const APP_VERSION = '7';
+(() => {
+  const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
+  if (pageVersion === APP_VERSION) {
+    try { sessionStorage.removeItem('ylvi-reloaded'); } catch { /* egal */ }
+    return;
+  }
+  let already = false;
+  try { already = sessionStorage.getItem('ylvi-reloaded') === APP_VERSION; } catch { /* egal */ }
+  if (!already) {
+    try { sessionStorage.setItem('ylvi-reloaded', APP_VERSION); } catch { /* egal */ }
+    location.replace(location.pathname + '?update=' + Date.now());
+  }
+  throw new Error('Veraltete Seite – wird neu geladen');
+})();
+
+/* ---------- Fehler sichtbar machen statt endlos „lädt“ ---------- */
+window.addEventListener('error', (e) => {
+  const n = document.getElementById('notice');
+  if (n) { n.hidden = false; n.textContent = 'Fehler: ' + (e.message || 'unbekannt') + ' – bitte die App komplett schließen und neu öffnen.'; }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const n = document.getElementById('notice');
+  if (n) { n.hidden = false; n.textContent = 'Fehler: ' + ((e.reason && e.reason.message) || e.reason || 'unbekannt'); }
+});
+
 const TABLE = 'entries';
 const MED_TABLE = 'medications';
 const BUCKET = 'photos';
@@ -125,7 +154,16 @@ const idb = (() => {
           }
           if (!db.objectStoreNames.contains('meds')) db.createObjectStore('meds', { keyPath: 'id' });
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onblocked = () => {
+          // Eine ältere Version der App hält den Speicher noch offen
+          notice('Die App ist noch in einem anderen Fenster geöffnet (z. B. auf dem Home-Bildschirm oder in einem anderen Tab). Bitte alle Fenster der App schließen und sie neu öffnen.');
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          // Spätere Updates nicht blockieren: Verbindung freigeben, wenn eine neuere Version sie braucht
+          db.onversionchange = () => { db.close(); notice('Die App wurde aktualisiert. Bitte neu laden.'); };
+          resolve(db);
+        };
         req.onerror = () => reject(req.error);
       });
     }
@@ -181,7 +219,18 @@ const isUrine = (type) => type !== 'kacka'; // 'pipi' und früheres 'beides'
 let loading = null;
 let reloadAgain = false;
 
+let loadWatchdog = null;
+function armLoadWatchdog() {
+  clearTimeout(loadWatchdog);
+  loadWatchdog = setTimeout(() => {
+    if (!state.loaded) {
+      notice('Das Laden dauert ungewöhnlich lange. Bitte die App komplett schließen (auch auf dem Home-Bildschirm) und neu öffnen.');
+    }
+  }, 10000);
+}
+
 async function loadEntries() {
+  if (!state.loaded) armLoadWatchdog();
   if (loading) { reloadAgain = true; return loading; }
   loading = (async () => {
     if (mode === 'local') {

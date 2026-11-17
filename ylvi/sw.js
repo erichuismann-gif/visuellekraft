@@ -1,6 +1,6 @@
 // Cache für die App-Dateien, damit sie schnell startet.
 // Nur eigene Dateien werden gecacht – Datenbank-Anfragen gehen immer ins Netz.
-const CACHE = 'ylvi-klo-v4';
+const CACHE = 'ylvi-klo-v5';
 const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg', './meds.js', './pdf-export.js', './vendor/jspdf.umd.min.js'];
 
 self.addEventListener('install', (e) => {
@@ -19,8 +19,10 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  // cache: 'no-cache' – immer beim Server nachfragen, damit nach Updates
+  // keine alten Dateien aus dem Browser-Cache gemischt werden.
   e.respondWith(
-    fetch(e.request)
+    fetch(new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' }))
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
