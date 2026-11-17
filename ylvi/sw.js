@@ -1,6 +1,7 @@
-// Offline-Cache für die App-Dateien (Daten liegen separat in IndexedDB).
-const CACHE = 'ylvi-klo-v1';
-const FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg'];
+// Cache für die App-Dateien, damit sie schnell startet.
+// Nur eigene Dateien werden gecacht – Datenbank-Anfragen gehen immer ins Netz.
+const CACHE = 'ylvi-klo-v2';
+const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -14,14 +15,17 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Netzwerk zuerst, damit Updates ankommen; offline aus dem Cache.
+// Netzwerk zuerst, damit Updates sofort ankommen; ohne Netz aus dem Cache.
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return res;
       })
       .catch(() => caches.match(e.request, { ignoreSearch: true }))

@@ -1,23 +1,70 @@
 # Ylvis Klo-Plan 🐱
 
-Kleine Web-App, mit der man festhält, wann Katze Ylvi auf dem Klo war – mit Beweisfoto zu jedem Eintrag.
+Gemeinsames Klo-Tagebuch für Katze Ylvi. Jeder Eintrag kann ein Beweisfoto haben.
+Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge erscheinen sofort bei allen.
 
 ## Funktionen
 - **Eintrag anlegen**: Pipi / Kacka / Beides, Uhrzeit (vorausgefüllt mit „jetzt“), optionale Notiz
 - **Beweisfoto**: direkt mit der Handykamera aufnehmen oder aus der Galerie wählen (wird automatisch verkleinert)
-- **Verlauf**: alle Einträge nach Tagen gruppiert, mit Vorschaubild; antippen zum Bearbeiten/Löschen, Foto antippen zum Vergrößern
-- **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste mit allen Klo-Besuchen, Woche vor/zurück blättern
+- **Verlauf**: alle Einträge nach Tagen, mit Vorschaubild und Namen der Person, die eingetragen hat
+- **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste, Woche vor/zurück blättern
 - **Status oben**: wie lange der letzte Besuch (und das letzte Kacka) her ist
-- **Backup** (Menü ⋯): Export als JSON-Datei inkl. Fotos, Import auf demselben oder einem anderen Gerät
+- **Live**: Trägt eine Person etwas ein, sieht die andere es sofort
 
-## Wo liegen die Daten?
-Alles bleibt **lokal im Browser des Geräts** (IndexedDB), nichts wird hochgeladen.
-Daher ab und zu ein Backup exportieren – wenn man die Browserdaten löscht, sind die Einträge weg.
+## Aufbau
+- Die App selbst (HTML/CSS/JS) liegt auf **GitHub Pages**.
+- Einträge und Fotos liegen in einer kostenlosen **Supabase**-Datenbank.
+- Nur angemeldete Personen können Einträge und Fotos sehen oder ändern. Die Fotos liegen in einem privaten Speicher.
 
-## Benutzen
-Die App ist reines HTML/CSS/JS ohne Build-Schritt. Sie braucht nur einen Webserver (wegen Kamera & Offline-Modus am besten mit HTTPS):
+## Einrichtung (einmalig, ca. 15 Minuten)
 
-- **GitHub Pages**: Repo → Settings → Pages → Branch wählen → App ist dann unter `https://<user>.github.io/<repo>/ylvi/` erreichbar.
-- **Lokal testen**: `cd ylvi && python3 -m http.server 8000` → <http://localhost:8000>
+### 1. Supabase-Projekt anlegen
+1. Auf <https://supabase.com> ein kostenloses Konto anlegen und **New project** wählen.
+2. Name z. B. `ylvi`, Region **Frankfurt (eu-central-1)**. Das Datenbank-Passwort brauchst du für die App nicht.
 
-Auf dem Handy dann im Browser „Zum Home-Bildschirm hinzufügen“ – danach startet sie wie eine normale App und funktioniert auch offline.
+### 2. Datenbank einrichten
+1. Im Projekt links auf **SQL Editor** gehen und eine neue Abfrage öffnen.
+2. Den kompletten Inhalt von [`supabase-setup.sql`](supabase-setup.sql) einfügen und auf **Run** klicken.
+   Das legt die Tabelle, den Foto-Speicher und die Zugriffsregeln an.
+
+### 3. Zugänge für euch beide anlegen
+1. Links **Authentication → Users → Add user → Create new user** öffnen.
+2. E-Mail und Passwort eintragen und **Auto Confirm User** anhaken.
+3. Das Ganze einmal für dich und einmal für deine Freundin machen.
+
+### 4. Registrierung abschalten (wichtig!)
+Unter **Authentication → Sign In / Providers** (je nach Version auch unter *Settings*)
+**„Allow new users to sign up“ ausschalten**. Sonst könnte sich theoretisch jeder, der die Seite findet,
+selbst ein Konto anlegen und eure Einträge sehen.
+
+### 5. App mit Supabase verbinden
+1. In Supabase unter **Project Settings → API** (bzw. *API Keys*) zwei Werte kopieren:
+   - die **Project URL** (`https://….supabase.co`)
+   - den **anon**- bzw. **publishable**-Schlüssel
+2. Auf GitHub die Datei [`ylvi/config.js`](config.js) öffnen, auf den Stift klicken, beide Werte eintragen und speichern („Commit changes“).
+
+Der Schlüssel darf öffentlich im Repo stehen. Er erlaubt ohne Anmeldung keinen Zugriff auf eure Daten.
+Den **service_role**- bzw. **secret**-Schlüssel dagegen niemals eintragen.
+
+### 6. GitHub Pages einschalten
+Auf GitHub im Repo **Settings → Pages** öffnen. Bei *Source* „Deploy from a branch“ wählen, dann den Branch (z. B. `main`) und `/ (root)`, und speichern.
+Nach 1–2 Minuten ist die App erreichbar unter:
+
+**https://erichuismann-gif.github.io/visuellekraft/ylvi/**
+
+### 7. Aufs Handy
+Link öffnen, anmelden, dann im Browser-Menü **„Zum Home-Bildschirm“** wählen
+(iPhone: Safari → Teilen-Symbol; Android: Chrome → ⋮). Beim ersten Anmelden fragt die App nach deinem Namen.
+Deiner Freundin schickst du einfach den Link und ihre Zugangsdaten. Ihr Passwort kann sie danach über das Menü ⋯ selbst ändern.
+
+## Gut zu wissen
+- Zum Eintragen braucht man Internet.
+- Kostenlose Supabase-Projekte werden nach etwa einer Woche **ohne jede Nutzung** pausiert. Im Dashboard reaktiviert man sie mit einem Klick.
+  Bei täglicher Nutzung passiert das nicht.
+- Im kostenlosen Tarif ist 1 GB Foto-Speicher enthalten. Bei ca. 200–400 KB pro Foto reicht das für mehrere tausend Fotos.
+
+## Lokal testen
+```
+cd ylvi && python3 -m http.server 8000
+```
+Dann <http://localhost:8000> öffnen.

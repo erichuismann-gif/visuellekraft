@@ -351,3 +351,45 @@ textarea { resize: vertical; }
   text-align: center;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Anmeldung, Einrichtung, Hinweise ---------- */
+.screen {
+  max-width: 440px;
+  margin: 24px auto;
+  padding: 20px 16px;
+}
+.screen h2 { margin: 0 0 8px; }
+.screen code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+.stack { display: grid; gap: 14px; }
+.stack .field { margin-bottom: 0; }
+.pad { padding: 18px; }
+.pad h2 { margin: 0; font-size: 1.2rem; }
+.muted { color: var(--muted); margin: 0; }
+.small { font-size: .85rem; }
+.field input[type="email"], .field input[type="password"], .field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.form-error { color: var(--danger); margin: 0 0 10px; font-size: .9rem; }
+.notice {
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: .9rem;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.menu-user {
+  margin: 0;
+  padding: 10px 18px;
+  color: var(--muted);
+  font-size: .85rem;
+  border-bottom: 1px solid var(--line);
+}
+.author { color: var(--muted); font-size: .8rem; font-weight: 400; margin-left: 6px; }
+.btn:disabled { opacity: .6; cursor: progress; }
+.photo-dialog .btn { margin-bottom: 4px; }
+.screen > .muted { margin-bottom: 18px; }

@@ -1,8 +1,9 @@
 'use strict';
 
 /* =========================================================
-   Ylvis Klo-Plan
-   Alle Daten (inkl. Fotos) liegen lokal im Browser (IndexedDB).
+   Ylvis Klo-Plan – gemeinsame Version
+   Einträge liegen in einer Supabase-Datenbank, Fotos im
+   Supabase-Speicher. Alle angemeldeten Personen sehen dieselben Daten.
    ========================================================= */
 
 const TYPES = {
@@ -10,47 +11,20 @@ const TYPES = {
   kacka:  { label: 'Kacka',  icon: '💩' },
   beides: { label: 'Beides', icon: '💧💩' },
 };
-const PHOTO_MAX_SIDE = 1600;   // Fotos werden verkleinert, damit der Speicher reicht
+const TABLE = 'entries';
+const BUCKET = 'photos';
+const PHOTO_MAX_SIDE = 1600;
 const PHOTO_QUALITY = 0.82;
-
-/* ---------- Datenbank ---------- */
-const db = (() => {
-  let dbPromise;
-  function open() {
-    if (!dbPromise) {
-      dbPromise = new Promise((resolve, reject) => {
-        const req = indexedDB.open('ylvi-klo', 1);
-        req.onupgradeneeded = () => {
-          const store = req.result.createObjectStore('entries', { keyPath: 'id' });
-          store.createIndex('time', 'time');
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-    return dbPromise;
-  }
-  async function tx(mode, fn) {
-    const d = await open();
-    return new Promise((resolve, reject) => {
-      const t = d.transaction('entries', mode);
-      const result = fn(t.objectStore('entries'));
-      t.oncomplete = () => resolve(result && 'result' in result ? result.result : result);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
-    });
-  }
-  return {
-    all: () => tx('readonly', (s) => s.getAll()),
-    put: (entry) => tx('readwrite', (s) => s.put(entry)),
-    remove: (id) => tx('readwrite', (s) => s.delete(id)),
-  };
-})();
+const SIGNED_URL_SECONDS = 60 * 60 * 6;
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (sel) => document.querySelector(sel);
 const pad = (n) => String(n).padStart(2, '0');
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  }));
 
 function toLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -64,8 +38,7 @@ function fromLocalInput(str) {
 function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function startOfWeek(d) {
   const x = startOfDay(d);
-  const dow = (x.getDay() + 6) % 7; // Montag = 0
-  x.setDate(x.getDate() - dow);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // Montag
   return x;
 }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
@@ -75,13 +48,11 @@ const fmtDayLong = (d) => d.toLocaleDateString('de-DE', { weekday: 'long', day: 
 const fmtDayShort = (d) => d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
 
 function dayTitle(d) {
-  const today = startOfDay(new Date());
-  const diff = Math.round((today - startOfDay(d)) / 86400000);
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86400000);
   if (diff === 0) return 'Heute';
   if (diff === 1) return 'Gestern';
   return fmtDayLong(d);
 }
-
 function ago(ms) {
   const min = Math.floor(ms / 60000);
   if (min < 1) return 'gerade eben';
@@ -91,81 +62,134 @@ function ago(ms) {
   const days = Math.floor(h / 24);
   return `vor ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
 }
-
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-
 function toast(msg) {
   const el = $('#toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => el.classList.remove('show'), 2400);
+  toast.t = setTimeout(() => el.classList.remove('show'), 2600);
 }
-
+function showError(el, msg) { el.textContent = msg || ''; el.hidden = !msg; }
+function notice(msg) { showError($('#notice'), msg); }
 function countTypes(list) {
   const c = { pipi: 0, kacka: 0 };
   for (const e of list) {
-    if (e.type === 'pipi' || e.type === 'beides') c.pipi++;
-    if (e.type === 'kacka' || e.type === 'beides') c.kacka++;
+    if (e.type !== 'kacka') c.pipi++;
+    if (e.type !== 'pipi') c.kacka++;
   }
   return c;
 }
-
-/* ---------- Fotos ---------- */
-async function compressImage(file) {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
-      i.src = url;
-    });
-    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.round(img.naturalWidth * scale);
-    const h = Math.round(img.naturalHeight * scale);
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', PHOTO_QUALITY));
-    return blob || file;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+function friendlyError(err) {
+  const msg = (err && (err.message || err.error_description || String(err))) || '';
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) return 'Keine Verbindung. Prüfe das Internet und versuche es erneut.';
+  if (/Invalid login credentials/i.test(msg)) return 'E-Mail oder Passwort stimmt nicht.';
+  if (/Email not confirmed/i.test(msg)) return 'Die E-Mail-Adresse ist noch nicht bestätigt. Bestätige sie im Supabase-Dashboard.';
+  if (/JWT|expired|not authenticated|row-level security|permission/i.test(msg)) return 'Keine Berechtigung. Melde dich ab und wieder an.';
+  if (/Payload too large|exceeded the maximum/i.test(msg)) return 'Das Foto ist zu groß.';
+  if (/Password should be/i.test(msg)) return 'Das Passwort ist zu kurz oder zu einfach.';
+  return 'Das hat nicht geklappt: ' + msg;
 }
 
-// Objekt-URLs für Fotos zwischenspeichern und beim Neuzeichnen aufräumen
-const photoUrls = new Map();
-function photoUrl(entry) {
-  if (!entry.photo) return null;
-  let u = photoUrls.get(entry.id);
-  if (!u || u.blob !== entry.photo) {
-    if (u) URL.revokeObjectURL(u.url);
-    u = { blob: entry.photo, url: URL.createObjectURL(entry.photo) };
-    photoUrls.set(entry.id, u);
-  }
-  return u.url;
+function showScreen(name) {
+  $('#setupScreen').hidden = name !== 'setup';
+  $('#loginScreen').hidden = name !== 'login';
+  $('#appScreen').hidden = name !== 'app';
+  $('#menuBtn').hidden = name !== 'app';
+  if (name !== 'app') $('#menu').hidden = true;
 }
-function cleanupPhotoUrls() {
-  const ids = new Set(state.entries.map((e) => e.id));
-  for (const [id, u] of photoUrls) {
-    if (!ids.has(id)) { URL.revokeObjectURL(u.url); photoUrls.delete(id); }
-  }
-}
+
+/* ---------- Verbindung ---------- */
+const cfg = window.YLVI_CONFIG || {};
+let sb = null;
+let me = null;       // angemeldete Person
+let channel = null;
 
 /* ---------- Zustand ---------- */
 const state = {
   entries: [],
+  loaded: false,
   view: 'list',
   weekStart: startOfWeek(new Date()),
 };
+const signedUrls = new Map(); // Foto-Pfad -> { url, expires }
 
-async function load() {
-  state.entries = (await db.all()).sort((a, b) => b.time - a.time);
-  cleanupPhotoUrls();
-  render();
+function myName() {
+  return (me && me.user_metadata && me.user_metadata.name) || (me && me.email ? me.email.split('@')[0] : '');
+}
+
+/* ---------- Daten laden ---------- */
+let loading = null;
+let reloadAgain = false;
+
+async function loadEntries() {
+  if (loading) { reloadAgain = true; return loading; }
+  loading = (async () => {
+    const { data, error } = await sb
+      .from(TABLE)
+      .select('id,time,type,note,photo_path,author,created_at')
+      .order('time', { ascending: false })
+      .limit(5000);
+    if (error) throw error;
+    state.entries = (data || [])
+      .filter((r) => TYPES[r.type])
+      .map((r) => ({
+        id: r.id,
+        time: Date.parse(r.time),
+        type: r.type,
+        note: r.note || '',
+        photo: r.photo_path || null,
+        author: r.author || '',
+      }));
+    await refreshSignedUrls();
+    state.loaded = true;
+    notice('');
+    render();
+  })();
+  try {
+    await loading;
+  } catch (err) {
+    notice(friendlyError(err));
+    state.loaded = true;
+    render();
+  } finally {
+    loading = null;
+    if (reloadAgain) { reloadAgain = false; loadEntries(); }
+  }
+}
+
+async function refreshSignedUrls() {
+  const now = Date.now();
+  const missing = [...new Set(state.entries.map((e) => e.photo).filter(Boolean))]
+    .filter((p) => { const s = signedUrls.get(p); return !s || s.expires < now + 5 * 60 * 1000; });
+  for (let i = 0; i < missing.length; i += 100) {
+    const chunk = missing.slice(i, i + 100);
+    const { data, error } = await sb.storage.from(BUCKET).createSignedUrls(chunk, SIGNED_URL_SECONDS);
+    if (error) { console.warn('Foto-Links:', error); continue; }
+    for (const item of data || []) {
+      if (item.signedUrl) signedUrls.set(item.path, { url: item.signedUrl, expires: now + SIGNED_URL_SECONDS * 1000 });
+    }
+  }
+}
+const photoUrl = (path) => (path && signedUrls.get(path)?.url) || null;
+
+let reloadTimer = null;
+function scheduleReload() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(loadEntries, 250);
+}
+
+function subscribeLive() {
+  if (channel) return;
+  channel = sb
+    .channel('entries-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, scheduleReload)
+    .subscribe();
+}
+function unsubscribeLive() {
+  if (channel) { sb.removeChannel(channel); channel = null; }
 }
 
 /* ---------- Darstellung ---------- */
@@ -175,29 +199,34 @@ function render() {
 }
 
 function renderStatus() {
-  const last = state.entries[0];
+  const el = $('#status');
+  if (!me) { el.textContent = 'Klo-Tagebuch für Ylvi'; return; }
+  if (!state.loaded) { el.textContent = 'Einträge werden geladen…'; return; }
   const now = Date.now();
-  if (!last) { $('#status').textContent = 'Noch keine Einträge'; return; }
-  const lastKacka = state.entries.find((e) => e.type !== 'pipi' && e.time <= now);
+  const past = state.entries.filter((e) => e.time <= now);
+  const last = past[0];
+  if (!last) { el.textContent = 'Noch keine Einträge'; return; }
+  const lastKacka = past.find((e) => e.type !== 'pipi');
   let txt = `Zuletzt ${TYPES[last.type].icon} ${ago(now - last.time)}`;
   if (lastKacka && lastKacka !== last) txt += ` · 💩 ${ago(now - lastKacka.time)}`;
-  $('#status').textContent = txt;
+  el.textContent = txt;
 }
 
 function renderList() {
-  const todayStart = startOfDay(new Date()).getTime();
-  const todays = state.entries.filter((e) => e.time >= todayStart && e.time < todayStart + 86400000);
+  const t0 = startOfDay(new Date()).getTime();
+  const todays = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000);
   const c = countTypes(todays);
-  const withPhoto = state.entries.filter((e) => e.photo).length;
   $('#todaySummary').innerHTML = `
     <div class="stat"><b>${c.pipi}</b><span>💧 Pipi heute</span></div>
     <div class="stat"><b>${c.kacka}</b><span>💩 Kacka heute</span></div>
-    <div class="stat"><b>${withPhoto}</b><span>📷 Beweisfotos</span></div>`;
+    <div class="stat"><b>${state.entries.filter((e) => e.photo).length}</b><span>📷 Beweisfotos</span></div>`;
 
   const list = $('#list');
   if (!state.entries.length) {
     list.innerHTML = `<div class="empty-state"><div class="big">🐱</div>
-      <p>Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi auf dem Klo war.</p></div>`;
+      <p>${state.loaded
+        ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi auf dem Klo war.'
+        : 'Einträge werden geladen…'}</p></div>`;
     return;
   }
 
@@ -207,23 +236,23 @@ function renderList() {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(e);
   }
-
   let html = '';
   for (const items of groups.values()) {
-    const d = new Date(items[0].time);
     const gc = countTypes(items);
-    html += `<div class="day-head"><span>${esc(dayTitle(d))}</span><span>💧 ${gc.pipi} · 💩 ${gc.kacka}</span></div>`;
+    html += `<div class="day-head"><span>${esc(dayTitle(new Date(items[0].time)))}</span><span>💧 ${gc.pipi} · 💩 ${gc.kacka}</span></div>`;
     for (const e of items) {
-      const url = photoUrl(e);
       const t = TYPES[e.type];
+      const url = photoUrl(e.photo);
       const thumb = url
-        ? `<img class="thumb" src="${url}" alt="Beweisfoto" data-photo="${e.id}">`
-        : `<span class="thumb empty">kein<br>Foto</span>`;
+        ? `<img class="thumb" src="${esc(url)}" alt="Beweisfoto" loading="lazy" data-photo="${esc(e.id)}">`
+        : e.photo
+          ? `<span class="thumb empty">Foto<br>lädt…</span>`
+          : `<span class="thumb empty">kein<br>Foto</span>`;
       html += `
-        <div class="entry" role="button" tabindex="0" data-edit="${e.id}">
+        <div class="entry" role="button" tabindex="0" data-edit="${esc(e.id)}">
           ${thumb}
           <div class="entry-main">
-            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge ${e.type}">${t.icon} ${t.label}</span></div>
+            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge ${e.type}">${t.icon} ${t.label}</span>${e.author ? `<span class="author">${esc(e.author)}</span>` : ''}</div>
             <div class="entry-note">${e.note ? esc(e.note) : '&nbsp;'}</div>
           </div>
         </div>`;
@@ -234,11 +263,9 @@ function renderList() {
 
 function renderWeek() {
   const start = state.weekStart;
-  const end = addDays(start, 7);
   $('#weekLabel').textContent =
     `${start.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ` +
-    `${addDays(end, -1).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
-
+    `${addDays(start, 6).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
   const todayKey = dayKey(new Date());
   let html = '';
   for (let i = 0; i < 7; i++) {
@@ -250,11 +277,11 @@ function renderWeek() {
     const dots = items.map((e) => {
       const d = new Date(e.time);
       const pct = ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100;
-      return `<button class="${e.type}" style="left:${pct.toFixed(2)}%" data-edit="${e.id}"
-        title="${fmtTime(d)} ${TYPES[e.type].label}" aria-label="${fmtTime(d)} ${TYPES[e.type].label}"></button>`;
+      const lbl = `${fmtTime(d)} ${TYPES[e.type].label}`;
+      return `<button class="${e.type}" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
     }).join('');
     const chips = items.map((e) =>
-      `<button class="chip" data-edit="${e.id}">${TYPES[e.type].icon} ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}</button>`
+      `<button class="chip" data-edit="${esc(e.id)}">${TYPES[e.type].icon} ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}</button>`
     ).join('');
     html += `
       <div class="wday${dayKey(day) === todayKey ? ' is-today' : ''}">
@@ -270,42 +297,63 @@ function renderWeek() {
   $('#week').innerHTML = html;
 }
 
+/* ---------- Fotos ---------- */
+async function compressImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Das Bild konnte nicht gelesen werden. Bitte ein anderes Foto wählen.'));
+      i.src = url;
+    });
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', PHOTO_QUALITY));
+    if (!blob) throw new Error('Das Foto konnte nicht verarbeitet werden.');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /* ---------- Formular ---------- */
 const form = $('#entryForm');
 const dlg = $('#entryDialog');
-let editing = null;      // Eintrag, der gerade bearbeitet wird (oder null = neu)
-let pendingPhoto;        // undefined = unverändert, null = entfernt, Blob = neu
+let editing = null;   // Eintrag, der bearbeitet wird (null = neu)
+let pendingPhoto;     // undefined = unverändert, null = entfernt, Blob = neu
 let previewUrl = null;
 
-function setPreview(blob) {
+function setPreview(src) {
   if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
   const img = $('#photoPreview');
-  if (blob) {
-    previewUrl = URL.createObjectURL(blob);
-    img.src = previewUrl;
-    img.hidden = false;
-  } else {
-    img.removeAttribute('src');
-    img.hidden = true;
-  }
-  $('#removePhoto').hidden = !blob;
+  if (src instanceof Blob) { previewUrl = URL.createObjectURL(src); src = previewUrl; }
+  if (src) { img.src = src; img.hidden = false; } else { img.removeAttribute('src'); img.hidden = true; }
+  $('#removePhoto').hidden = !src;
 }
 
 function openForm(entry = null) {
   editing = entry;
   pendingPhoto = undefined;
   form.reset();
+  showError($('#formError'), '');
   $('#formTitle').textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
   $('#deleteBtn').hidden = !entry;
+  $('#saveBtn').disabled = false;
   form.time.value = toLocalInput(entry ? new Date(entry.time) : new Date());
   form.type.value = entry ? entry.type : 'pipi';
   form.note.value = entry?.note || '';
-  setPreview(entry?.photo || null);
+  const meta = $('#entryMeta');
+  meta.hidden = !(entry && entry.author);
+  meta.textContent = entry && entry.author ? `Eingetragen von ${entry.author}` : '';
+  setPreview(entry?.photo ? photoUrl(entry.photo) : null);
   dlg.showModal();
 }
-
 function closeForm() {
-  dlg.close();
+  if (dlg.open) dlg.close();
   setPreview(null);
   editing = null;
 }
@@ -317,60 +365,92 @@ async function handlePhotoInput(ev) {
   try {
     pendingPhoto = await compressImage(file);
     setPreview(pendingPhoto);
+    showError($('#formError'), '');
   } catch (err) {
-    toast(err.message);
+    showError($('#formError'), err.message);
   }
 }
 
 form.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   if (!form.time.value) return;
-  const photo = pendingPhoto === undefined ? (editing?.photo || null) : pendingPhoto;
-  const entry = {
-    id: editing ? editing.id : uid(),
-    created: editing ? editing.created : Date.now(),
-    time: fromLocalInput(form.time.value).getTime(),
-    type: form.type.value,
-    note: form.note.value.trim(),
-    photo,
-  };
+  const saveBtn = $('#saveBtn');
+  saveBtn.disabled = true;
+  showError($('#formError'), '');
+
+  const id = editing ? editing.id : uid();
+  const oldPhoto = editing?.photo || null;
+  let photoPath = oldPhoto;
+  let uploaded = null;
+
   try {
-    await db.put(entry);
+    if (pendingPhoto instanceof Blob) {
+      uploaded = `${id}/${Date.now()}.jpg`;
+      const { error } = await sb.storage.from(BUCKET).upload(uploaded, pendingPhoto, { contentType: 'image/jpeg', upsert: false });
+      if (error) { uploaded = null; throw error; }
+      photoPath = uploaded;
+    } else if (pendingPhoto === null) {
+      photoPath = null;
+    }
+
+    const row = {
+      time: fromLocalInput(form.time.value).toISOString(),
+      type: form.type.value,
+      note: form.note.value.trim().slice(0, 500),
+      photo_path: photoPath,
+    };
+    const { error } = editing
+      ? await sb.from(TABLE).update(row).eq('id', id)
+      : await sb.from(TABLE).insert({ id, ...row, author: myName() });
+    if (error) throw error;
+
+    if (oldPhoto && oldPhoto !== photoPath) {
+      sb.storage.from(BUCKET).remove([oldPhoto]).catch(() => {});
+    }
+    const wasNew = !editing;
+    closeForm();
+    toast(wasNew ? (photoPath ? 'Eintrag mit Beweisfoto gespeichert ✓' : 'Eintrag gespeichert ✓') : 'Änderungen gespeichert ✓');
+    await loadEntries();
   } catch (err) {
-    toast('Speichern fehlgeschlagen: ' + (err?.message || err));
-    return;
+    if (uploaded) sb.storage.from(BUCKET).remove([uploaded]).catch(() => {});
+    showError($('#formError'), friendlyError(err));
+    saveBtn.disabled = false;
   }
-  const wasNew = !editing;
-  closeForm();
-  toast(wasNew ? (photo ? 'Eintrag mit Beweisfoto gespeichert ✓' : 'Eintrag gespeichert ✓') : 'Änderungen gespeichert ✓');
-  await load();
 });
 
 $('#cameraInput').addEventListener('change', handlePhotoInput);
 $('#galleryInput').addEventListener('change', handlePhotoInput);
 $('#removePhoto').addEventListener('click', () => { pendingPhoto = null; setPreview(null); });
 $('#cancelBtn').addEventListener('click', closeForm);
-dlg.addEventListener('cancel', () => setPreview(null));
+dlg.addEventListener('close', () => setPreview(null));
+
 $('#deleteBtn').addEventListener('click', async () => {
-  if (!editing || !confirm('Diesen Eintrag wirklich löschen?')) return;
-  await db.remove(editing.id);
+  if (!editing || !confirm('Diesen Eintrag wirklich löschen? Das gilt auch für alle anderen.')) return;
+  const entry = editing;
+  const { error } = await sb.from(TABLE).delete().eq('id', entry.id);
+  if (error) { showError($('#formError'), friendlyError(error)); return; }
+  if (entry.photo) sb.storage.from(BUCKET).remove([entry.photo]).catch(() => {});
   closeForm();
   toast('Eintrag gelöscht');
-  await load();
+  await loadEntries();
 });
 
 /* ---------- Foto groß ---------- */
 function showPhoto(entry) {
-  $('#photoLarge').src = photoUrl(entry);
+  const url = photoUrl(entry.photo);
+  if (!url) return;
+  $('#photoLarge').src = url;
   const d = new Date(entry.time);
-  $('#photoCaption').textContent = `${TYPES[entry.type].icon} ${TYPES[entry.type].label} · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr`;
+  $('#photoCaption').textContent =
+    `${TYPES[entry.type].icon} ${TYPES[entry.type].label} · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr` +
+    (entry.author ? ` · ${entry.author}` : '');
   $('#photoDialog').showModal();
 }
+$('#closePhoto').addEventListener('click', () => $('#photoDialog').close());
 $('#photoDialog').addEventListener('click', (e) => { if (e.target === $('#photoDialog')) $('#photoDialog').close(); });
 
 /* ---------- Klicks in Liste & Wochenplan ---------- */
-function findEntry(id) { return state.entries.find((e) => e.id === id); }
-
+const findEntry = (id) => state.entries.find((e) => e.id === id);
 document.addEventListener('click', (ev) => {
   const photoEl = ev.target.closest('[data-photo]');
   if (photoEl) { const e = findEntry(photoEl.dataset.photo); if (e) showPhoto(e); return; }
@@ -384,7 +464,6 @@ document.addEventListener('keydown', (ev) => {
     if (e) openForm(e);
   }
 });
-
 $('#addBtn').addEventListener('click', () => openForm());
 
 /* ---------- Tabs & Woche ---------- */
@@ -400,81 +479,121 @@ document.querySelectorAll('.tabs button').forEach((b) => {
 $('#prevWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, -7); renderWeek(); });
 $('#nextWeek').addEventListener('click', () => { state.weekStart = addDays(state.weekStart, 7); renderWeek(); });
 
-/* ---------- Menü: Backup ---------- */
+/* ---------- Anmeldung ---------- */
+$('#loginForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const btn = $('#loginBtn');
+  btn.disabled = true;
+  showError($('#loginError'), '');
+  const { error } = await sb.auth.signInWithPassword({
+    email: $('#loginEmail').value.trim(),
+    password: $('#loginPassword').value,
+  });
+  btn.disabled = false;
+  if (error) showError($('#loginError'), friendlyError(error));
+  // Erfolg wird über onAuthStateChange verarbeitet
+});
+
+function askName() {
+  $('#nameInput').value = (me && me.user_metadata && me.user_metadata.name) || '';
+  showError($('#nameError'), '');
+  $('#nameDialog').showModal();
+}
+$('#nameForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const name = $('#nameInput').value.trim();
+  if (!name) return;
+  const { data, error } = await sb.auth.updateUser({ data: { name } });
+  if (error) { showError($('#nameError'), friendlyError(error)); return; }
+  if (data && data.user) me = data.user;
+  $('#nameDialog').close();
+  $('#menuUser').textContent = `Angemeldet als ${myName()}`;
+  toast(`Hallo ${name}!`);
+});
+
+$('#passwordForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const { error } = await sb.auth.updateUser({ password: $('#passwordInput').value });
+  if (error) { showError($('#passwordError'), friendlyError(error)); return; }
+  $('#passwordDialog').close();
+  toast('Passwort geändert ✓');
+});
+$('#passwordCancel').addEventListener('click', () => $('#passwordDialog').close());
+
+/* ---------- Menü ---------- */
 const menu = $('#menu');
 $('#menuBtn').addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
 document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true; });
-
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-}
-async function dataUrlToBlob(url) { return (await fetch(url)).blob(); }
-
-async function exportBackup() {
-  const entries = await Promise.all(state.entries.map(async (e) => ({
-    ...e,
-    photo: e.photo ? await blobToDataUrl(e.photo) : null,
-  })));
-  const data = JSON.stringify({ app: 'ylvi-klo', version: 1, exported: new Date().toISOString(), entries });
-  const blob = new Blob([data], { type: 'application/json' });
-  const name = `ylvi-klo-backup-${dayKey(new Date())}.json`;
-  const file = new File([blob], name, { type: 'application/json' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Ylvis Klo-Plan Backup' }); return; }
-    catch (err) { if (err.name === 'AbortError') return; }
-  }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-async function importBackup(file) {
-  try {
-    const data = JSON.parse(await file.text());
-    if (data.app !== 'ylvi-klo' || !Array.isArray(data.entries)) throw new Error('Keine gültige Backup-Datei');
-    let n = 0;
-    for (const e of data.entries) {
-      if (!e.id || !TYPES[e.type] || typeof e.time !== 'number') continue;
-      await db.put({
-        id: e.id, created: e.created || e.time, time: e.time, type: e.type,
-        note: e.note || '',
-        photo: e.photo ? await dataUrlToBlob(e.photo) : null,
-      });
-      n++;
-    }
-    toast(`${n} Einträge importiert ✓`);
-    await load();
-  } catch (err) {
-    toast('Import fehlgeschlagen: ' + err.message);
-  }
-}
-
-menu.addEventListener('click', (e) => {
+menu.addEventListener('click', async (e) => {
   const action = e.target.dataset.action;
+  if (!action) return;
   menu.hidden = true;
-  if (action === 'export') exportBackup();
-  if (action === 'import') $('#importFile').click();
+  if (action === 'name') askName();
+  if (action === 'password') {
+    $('#passwordInput').value = '';
+    showError($('#passwordError'), '');
+    $('#passwordDialog').showModal();
+  }
+  if (action === 'logout') await sb.auth.signOut();
 });
-$('#importFile').addEventListener('change', (e) => {
-  const f = e.target.files[0];
-  e.target.value = '';
-  if (f) importBackup(f);
-});
+
+/* ---------- Sitzungswechsel ---------- */
+function onSignedIn(user) {
+  const first = !me;
+  me = user;
+  $('#menuUser').textContent = `Angemeldet als ${myName()}`;
+  showScreen('app');
+  if (first) {
+    state.loaded = false;
+    render();
+    loadEntries();
+    subscribeLive();
+    if (!(user.user_metadata && user.user_metadata.name)) askName();
+  }
+}
+function onSignedOut() {
+  me = null;
+  unsubscribeLive();
+  state.entries = [];
+  state.loaded = false;
+  signedUrls.clear();
+  $('#loginPassword').value = '';
+  showScreen('login');
+  renderStatus();
+}
 
 /* ---------- Start ---------- */
-load().catch((err) => toast('Datenbank-Fehler: ' + err.message));
-setInterval(renderStatus, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+function start() {
+  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+    showScreen('setup');
+    $('#status').textContent = 'Einrichtung fehlt';
+    return;
+  }
+  if (!window.supabase || !window.supabase.createClient) {
+    showScreen('setup');
+    $('#setupScreen').innerHTML = '<h2>Keine Verbindung</h2><p>Die App braucht beim Start Internet. Prüfe die Verbindung und lade die Seite neu.</p>';
+    $('#status').textContent = 'Offline';
+    return;
+  }
+  sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+  });
+  sb.auth.onAuthStateChange((event, session) => {
+    // Supabase empfiehlt, im Callback nichts zu awaiten – daher entkoppelt.
+    setTimeout(() => {
+      if (session && session.user) onSignedIn(session.user);
+      else onSignedOut();
+    }, 0);
+  });
 
-// Browser bitten, die Daten nicht automatisch zu löschen
-if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  setInterval(renderStatus, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && me) loadEntries();
+  });
+}
+
+start();
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

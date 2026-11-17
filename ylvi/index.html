@@ -7,6 +7,7 @@
   <meta name="theme-color" content="#faf6f1" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1c1815" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Ylvi Klo">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -19,48 +20,75 @@
       <img src="icon.svg" alt="" width="40" height="40">
       <div>
         <h1>Ylvis Klo-Plan</h1>
-        <p id="status" class="status">Noch keine Einträge</p>
+        <p id="status" class="status">Wird geladen…</p>
       </div>
     </div>
-    <button id="menuBtn" class="icon-btn" aria-label="Menü" aria-haspopup="true">⋯</button>
+    <button id="menuBtn" class="icon-btn" aria-label="Menü" aria-haspopup="true" hidden>⋯</button>
     <div id="menu" class="menu" hidden>
-      <button data-action="export">Backup exportieren</button>
-      <button data-action="import">Backup importieren</button>
+      <p id="menuUser" class="menu-user"></p>
+      <button data-action="name">Namen ändern</button>
+      <button data-action="password">Passwort ändern</button>
+      <button data-action="logout">Abmelden</button>
     </div>
-    <input id="importFile" type="file" accept="application/json,.json" hidden>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button role="tab" data-view="list" aria-selected="true">Verlauf</button>
-    <button role="tab" data-view="week" aria-selected="false">Wochenplan</button>
-  </nav>
+  <!-- Einrichtung fehlt -->
+  <section id="setupScreen" class="screen" hidden>
+    <h2>Fast fertig</h2>
+    <p>Die App ist noch nicht mit der Datenbank verbunden. Trage in der Datei <code>ylvi/config.js</code> die Supabase-Adresse und den Schlüssel ein. Die Anleitung steht in <code>ylvi/README.md</code>.</p>
+  </section>
 
-  <main>
-    <section id="view-list" class="view">
-      <div class="today" id="todaySummary"></div>
-      <div id="list"></div>
-    </section>
+  <!-- Anmeldung -->
+  <section id="loginScreen" class="screen" hidden>
+    <h2>Anmelden</h2>
+    <p class="muted">Melde dich mit dem Zugang an, den ihr für Ylvis Klo-Plan angelegt habt. Du bleibst danach angemeldet.</p>
+    <form id="loginForm" class="stack">
+      <label class="field"><span>E-Mail</span>
+        <input id="loginEmail" type="email" autocomplete="username" required>
+      </label>
+      <label class="field"><span>Passwort</span>
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="loginError" class="form-error" hidden></p>
+      <button type="submit" id="loginBtn" class="btn primary">Anmelden</button>
+    </form>
+  </section>
 
-    <section id="view-week" class="view" hidden>
-      <div class="week-nav">
-        <button class="icon-btn" id="prevWeek" aria-label="Vorherige Woche">‹</button>
-        <strong id="weekLabel"></strong>
-        <button class="icon-btn" id="nextWeek" aria-label="Nächste Woche">›</button>
-      </div>
-      <div class="legend">
-        <span><i class="dot pipi"></i>Pipi</span>
-        <span><i class="dot kacka"></i>Kacka</span>
-        <span><i class="dot beides"></i>Beides</span>
-      </div>
-      <div id="week"></div>
-    </section>
-  </main>
+  <div id="appScreen" hidden>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="list" aria-selected="true">Verlauf</button>
+      <button role="tab" data-view="week" aria-selected="false">Wochenplan</button>
+    </nav>
 
-  <button id="addBtn" class="fab" aria-label="Neuer Eintrag">＋ Eintrag</button>
+    <main>
+      <p id="notice" class="notice" hidden></p>
+
+      <section id="view-list" class="view">
+        <div class="today" id="todaySummary"></div>
+        <div id="list"></div>
+      </section>
+
+      <section id="view-week" class="view" hidden>
+        <div class="week-nav">
+          <button class="icon-btn" id="prevWeek" aria-label="Vorherige Woche">‹</button>
+          <strong id="weekLabel"></strong>
+          <button class="icon-btn" id="nextWeek" aria-label="Nächste Woche">›</button>
+        </div>
+        <div class="legend">
+          <span><i class="dot pipi"></i>Pipi</span>
+          <span><i class="dot kacka"></i>Kacka</span>
+          <span><i class="dot beides"></i>Beides</span>
+        </div>
+        <div id="week"></div>
+      </section>
+    </main>
+
+    <button id="addBtn" class="fab" aria-label="Neuer Eintrag">＋ Eintrag</button>
+  </div>
 
   <!-- Eintrag anlegen / bearbeiten -->
   <dialog id="entryDialog">
-    <form id="entryForm" method="dialog">
+    <form id="entryForm">
       <h2 id="formTitle">Neuer Eintrag</h2>
 
       <fieldset class="types">
@@ -77,7 +105,7 @@
 
       <div class="field">
         <span>Beweisfoto</span>
-        <div id="photoBox" class="photo-box">
+        <div class="photo-box">
           <img id="photoPreview" alt="Vorschau Beweisfoto" hidden>
           <div class="photo-actions">
             <label class="btn">
@@ -95,13 +123,45 @@
 
       <label class="field">
         <span>Notiz <small>(optional)</small></span>
-        <textarea name="note" rows="2" placeholder="z. B. Konsistenz, Menge, Auffälligkeiten…"></textarea>
+        <textarea name="note" rows="2" maxlength="500" placeholder="z. B. Konsistenz, Menge, Auffälligkeiten…"></textarea>
       </label>
+
+      <p id="entryMeta" class="muted small" hidden></p>
+      <p id="formError" class="form-error" hidden></p>
 
       <div class="form-actions">
         <button type="button" id="deleteBtn" class="btn ghost danger" hidden>Löschen</button>
         <span class="spacer"></span>
         <button type="button" id="cancelBtn" class="btn ghost">Abbrechen</button>
+        <button type="submit" id="saveBtn" class="btn primary">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Name -->
+  <dialog id="nameDialog">
+    <form id="nameForm" class="stack pad">
+      <h2>Wie heißt du?</h2>
+      <p class="muted">Der Name steht an deinen Einträgen, damit ihr seht, wer was eingetragen hat.</p>
+      <label class="field"><span>Dein Name</span>
+        <input id="nameInput" type="text" maxlength="40" required autocomplete="given-name">
+      </label>
+      <p id="nameError" class="form-error" hidden></p>
+      <div class="form-actions"><span class="spacer"></span><button type="submit" class="btn primary">Speichern</button></div>
+    </form>
+  </dialog>
+
+  <!-- Passwort -->
+  <dialog id="passwordDialog">
+    <form id="passwordForm" class="stack pad">
+      <h2>Passwort ändern</h2>
+      <label class="field"><span>Neues Passwort <small>(mindestens 8 Zeichen)</small></span>
+        <input id="passwordInput" type="password" minlength="8" required autocomplete="new-password">
+      </label>
+      <p id="passwordError" class="form-error" hidden></p>
+      <div class="form-actions">
+        <span class="spacer"></span>
+        <button type="button" id="passwordCancel" class="btn ghost">Abbrechen</button>
         <button type="submit" class="btn primary">Speichern</button>
       </div>
     </form>
@@ -111,11 +171,13 @@
   <dialog id="photoDialog" class="photo-dialog">
     <img id="photoLarge" alt="Beweisfoto">
     <p id="photoCaption"></p>
-    <form method="dialog"><button class="btn">Schließen</button></form>
+    <button id="closePhoto" type="button" class="btn">Schließen</button>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
