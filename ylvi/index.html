@@ -12,8 +12,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <meta name="ylvi-version" content="9">
-  <link rel="stylesheet" href="styles.css?v=9">
+  <meta name="ylvi-version" content="10">
+  <link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
   <header class="top">
@@ -27,10 +27,11 @@
     </div>
     <button id="menuBtn" class="icon-btn" aria-label="Menü" aria-haspopup="true" hidden>⋯</button>
     <div id="menu" class="menu" hidden>
-      <p id="menuUser" class="menu-user"></p>
-      <button data-action="name">Namen ändern</button>
-      <button data-action="password">Passwort ändern</button>
-      <button data-action="logout">Abmelden</button>
+      <p id="menuUser" class="menu-user cloud-only"></p>
+      <button data-action="backup">💾 Backup speichern / laden</button>
+      <button data-action="name" class="cloud-only">Namen ändern</button>
+      <button data-action="password" class="cloud-only">Passwort ändern</button>
+      <button data-action="logout" class="cloud-only">Abmelden</button>
     </div>
   </header>
 
@@ -64,7 +65,10 @@
     </nav>
 
     <main>
-      <p id="localHint" class="notice" hidden>📱 Die Einträge werden nur auf diesem Handy gespeichert. Sobald die gemeinsame Datenbank eingerichtet ist, kannst du sie dorthin übernehmen.</p>
+      <div id="localHint" class="notice local-hint" hidden>
+        <p>📱 Die Einträge werden nur auf diesem Handy gespeichert. Sobald die gemeinsame Datenbank eingerichtet ist, kannst du sie dorthin übernehmen.</p>
+        <p class="backup-line"><span id="backupHint"></span> <button type="button" id="backupHintBtn" class="link-btn">Backup speichern</button></p>
+      </div>
       <p id="notice" class="notice" hidden></p>
       <div id="migrateBox" class="notice migrate" hidden>
         <p id="migrateText"></p>
@@ -207,6 +211,31 @@
     </form>
   </dialog>
 
+  <!-- Backup -->
+  <dialog id="backupDialog">
+    <div class="stack pad">
+      <h2>Backup</h2>
+      <p class="muted">Sichert alle Einträge, Beweisfotos und die Medikation in einer Datei. Leg sie z. B. in „Dateien“, iCloud oder Google Drive ab, dann kannst du sie jederzeit wieder einlesen, auch auf einem anderen Handy.</p>
+      <p id="backupLast" class="muted small"></p>
+      <button type="button" id="backupSave" class="btn primary">💾 Backup erstellen</button>
+      <p id="backupProgress" class="muted small" hidden></p>
+      <hr class="sep">
+      <h3 class="sub-title">Backup einlesen</h3>
+      <label class="btn">📂 Backup-Datei auswählen
+        <input id="backupFile" type="file" hidden>
+      </label>
+      <div id="backupPreview" class="notice migrate" hidden>
+        <p id="backupInfo"></p>
+        <button type="button" id="backupImport" class="btn primary">Jetzt einlesen</button>
+      </div>
+      <p id="backupError" class="form-error" hidden></p>
+      <div class="form-actions">
+        <span class="spacer"></span>
+        <button type="button" id="backupClose" class="btn ghost">Schließen</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- PDF-Export -->
   <dialog id="pdfDialog">
     <form id="pdfForm" class="stack pad">
@@ -248,9 +277,9 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
-  <script src="config.js?v=9"></script>
-  <script src="meds.js?v=9"></script>
-  <script src="pdf-export.js?v=9"></script>
-  <script src="app.js?v=9"></script>
+  <script src="config.js?v=10"></script>
+  <script src="meds.js?v=10"></script>
+  <script src="pdf-export.js?v=10"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

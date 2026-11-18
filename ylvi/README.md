@@ -10,6 +10,7 @@ Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge er
 - **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste und die an dem Tag gültige Dosis; Tage mit Dosisänderung sind hervorgehoben
 - **Medikation**: mehrere Medikamente (z. B. Fluoxetin und Alfuzosin), je Medikament Dosisänderungen eintragen oder absetzen (0 mg), Verlauf der Medikation und Vergleich „Ø Pipi pro Tag je Dosis-Kombination“
 - **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Medikation, Vergleich je Dosis, Zusammenfassung, optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar.
+- **Backup** (Menü ⋯): alle Einträge, Fotos und Medikation als eine Datei speichern (auf dem Handy direkt teilen, z. B. in „Dateien“ oder iCloud) und wieder einlesen – auch auf einem anderen Handy. Beim Einlesen bleibt Vorhandenes erhalten, nichts wird doppelt angelegt.
 - **Status oben**: wie lange das letzte Pipi her ist und die aktuelle Dosis
 - **Gemeinsam & live** (mit Datenbank): Trägt eine Person etwas ein, sieht die andere es sofort
 
@@ -21,6 +22,8 @@ Jedes Handy hat dann seine eigenen Einträge. Ihr seht die Einträge der anderen
 Sobald die Datenbank eingerichtet ist (Schritte 1–5), meldet ihr euch an. Die App bietet dann an,
 die lokalen Einträge samt Fotos **in die gemeinsame Datenbank zu übernehmen**. Danach sind sie auf dem Handy gelöscht
 und liegen nur noch in der Datenbank.
+
+**Tipp:** Im lokalen Modus regelmäßig über das Menü ⋯ ein Backup speichern. Wenn die Browserdaten gelöscht werden oder das Handy verloren geht, sind die Einträge sonst weg.
 
 ## Aufbau
 - Die App selbst (HTML/CSS/JS) liegt auf **GitHub Pages**.

@@ -10,7 +10,7 @@
 /* ---------- Versionsprüfung ----------
    Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
    mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
-const APP_VERSION = '9';
+const APP_VERSION = '10';
 (() => {
   const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
   if (pageVersion === APP_VERSION) {
@@ -406,6 +406,7 @@ function changeText(change) {
 /* ---------- Darstellung ---------- */
 function render() {
   renderStatus();
+  renderBackupHint();
   if (state.view === 'list') renderList();
   else if (state.view === 'week') renderWeek();
   else renderMeds();
@@ -1029,6 +1030,220 @@ $('#pdfForm').addEventListener('submit', async (ev) => {
   }
 });
 
+/* ---------- Backup ---------- */
+const BACKUP_LAST = 'ylvi-last-backup';
+const backupDlg = $('#backupDialog');
+let backupResult = null;   // { blob, filename } nach dem Erstellen
+let backupPending = null;  // eingelesene Datei, wartet auf Bestätigung
+
+function lastBackupText() {
+  let t = null;
+  try { t = Number(localStorage.getItem(BACKUP_LAST)) || null; } catch { /* egal */ }
+  return t ? `Letztes Backup: ${fmtDate(new Date(t))} (${ago(Date.now() - t)})` : 'Noch kein Backup gespeichert.';
+}
+function renderBackupHint() {
+  if (mode !== 'local') return;
+  const el = $('#backupHint');
+  if (el) el.textContent = lastBackupText();
+}
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+async function dataUrlToBlob(url) {
+  const [head, data] = url.split(',');
+  const mime = (head.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+function resetBackupDialog() {
+  backupResult = null;
+  backupPending = null;
+  $('#backupSave').textContent = '💾 Backup erstellen';
+  $('#backupSave').disabled = false;
+  $('#backupPreview').hidden = true;
+  $('#backupImport').disabled = false;
+  showError($('#backupProgress'), '');
+  showError($('#backupError'), '');
+  $('#backupLast').textContent = lastBackupText();
+}
+function openBackup() {
+  resetBackupDialog();
+  backupDlg.showModal();
+}
+$('#backupHintBtn').addEventListener('click', openBackup);
+$('#backupClose').addEventListener('click', () => backupDlg.close());
+
+async function buildBackup(progress) {
+  const entries = [];
+  if (mode === 'local') {
+    const rows = await localDb.all();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!isUrine(r.type)) continue;
+      if (r.photo instanceof Blob) progress(`Fotos werden eingepackt… ${i + 1} von ${rows.length}`);
+      entries.push({
+        id: r.id, time: r.time, type: normType(r.type), note: r.note || '', author: r.author || '',
+        created: r.created || r.time,
+        photo: r.photo instanceof Blob ? await blobToDataUrl(r.photo) : null,
+      });
+    }
+  } else {
+    const list = state.entries;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      let photo = null;
+      if (e.photo) {
+        progress(`Fotos werden heruntergeladen… ${i + 1} von ${list.length}`);
+        try { const b = await getPhotoBlob(e); if (b) photo = await blobToDataUrl(b); } catch { photo = null; }
+      }
+      entries.push({ id: e.id, time: e.time, type: e.type, note: e.note || '', author: e.author || '', created: e.time, photo });
+    }
+  }
+  const meds = (mode === 'local' ? await localMeds.all() : state.meds).map((m) => ({
+    id: m.id, name: m.name, dose: m.dose, start: m.start, note: m.note || '', author: m.author || '', created: m.created || 0,
+  }));
+  const data = { app: 'ylvi-klo', version: 2, exported: new Date().toISOString(), entries, meds };
+  const now = new Date();
+  const filename = `Ylvi-Backup_${toDateInput(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}.json`;
+  return { blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), filename, count: entries.length, photos: entries.filter((e) => e.photo).length, meds: meds.length };
+}
+
+$('#backupSave').addEventListener('click', async () => {
+  const btn = $('#backupSave');
+  showError($('#backupError'), '');
+  // Zweiter Schritt: fertige Datei teilen bzw. herunterladen
+  if (backupResult) {
+    const file = new File([backupResult.blob], backupResult.filename, { type: 'application/json' });
+    let saved = false;
+    if (canSharePdf(file)) {
+      try { await navigator.share({ files: [file], title: 'Ylvis Klo-Plan Backup' }); saved = true; } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+    }
+    if (!saved) downloadBlob(backupResult.blob, backupResult.filename);
+    try { localStorage.setItem(BACKUP_LAST, String(Date.now())); } catch { /* egal */ }
+    toast('Backup gespeichert ✓');
+    backupDlg.close();
+    render();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Wird erstellt…';
+  const prog = $('#backupProgress');
+  showError(prog, 'Backup wird erstellt…');
+  try {
+    const r = await buildBackup((t) => showError(prog, t));
+    backupResult = r;
+    const kb = Math.max(1, Math.round(r.blob.size / 1024));
+    const size = kb > 1024 ? `${(kb / 1024).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB` : `${kb} KB`;
+    showError(prog, `Fertig: ${r.count} Einträge, ${r.photos} Fotos, ${r.meds} Medikations-Einträge (${size}).`);
+    const file = new File([r.blob], r.filename, { type: 'application/json' });
+    btn.textContent = canSharePdf(file) ? '📤 Backup teilen / sichern' : '⬇️ Backup herunterladen';
+  } catch (err) {
+    showError(prog, '');
+    showError($('#backupError'), 'Das Backup konnte nicht erstellt werden: ' + (err?.message || err));
+    btn.textContent = '💾 Backup erstellen';
+  }
+  btn.disabled = false;
+});
+
+$('#backupFile').addEventListener('change', async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  showError($('#backupError'), '');
+  $('#backupPreview').hidden = true;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!data || data.app !== 'ylvi-klo' || !Array.isArray(data.entries)) throw new Error('format');
+    const entries = data.entries.filter((e) => e && e.id && typeof e.time === 'number' && isUrine(e.type));
+    const meds = Array.isArray(data.meds)
+      ? data.meds.filter((m) => m && m.id && m.name && Number.isFinite(Number(m.dose)))
+      : [];
+    const known = new Set(state.entries.map((e) => e.id));
+    const isNew = entries.filter((e) => !known.has(e.id)).length;
+    const attempts = entries.filter((e) => e.type === 'versuch').length;
+    backupPending = { entries, meds };
+    const when = data.exported ? fmtDate(new Date(data.exported)) : 'unbekanntem Datum';
+    $('#backupInfo').textContent =
+      `Backup vom ${when}: ${entries.length - attempts} Pipi, ${attempts} ${attempts === 1 ? 'Versuch' : 'Versuche'}, ` +
+      `${entries.filter((e) => e.photo).length} Fotos, ${meds.length} Medikations-Einträge. ` +
+      `${isNew} davon sind neu. Vorhandene Einträge bleiben erhalten, gleiche werden aktualisiert.`;
+    $('#backupImport').disabled = false;
+    $('#backupPreview').hidden = false;
+  } catch (err) {
+    backupPending = null;
+    showError($('#backupError'), 'Diese Datei ist kein Backup von Ylvis Klo-Plan. Bitte die Datei „Ylvi-Backup_….json“ wählen.');
+  }
+});
+
+$('#backupImport').addEventListener('click', async () => {
+  if (!backupPending) return;
+  const btn = $('#backupImport');
+  btn.disabled = true;
+  const { entries, meds } = backupPending;
+  const info = $('#backupInfo');
+  let done = 0;
+  try {
+    for (const m of meds) {
+      const rec = { id: String(m.id), name: String(m.name).slice(0, 60), dose: Number(m.dose), start: m.start || null, note: (m.note || '').slice(0, 300), author: m.author || '', created: m.created || 0 };
+      if (mode === 'local') await localMeds.put(rec);
+      else {
+        const { error } = await sb.from(MED_TABLE).upsert(medToRow(rec));
+        if (error) throw error;
+      }
+    }
+    for (const e of entries) {
+      info.textContent = `Lese ein… ${done} von ${entries.length}`;
+      const type = normType(e.type);
+      const note = (e.note || '').slice(0, 500);
+      const blob = typeof e.photo === 'string' && e.photo.startsWith('data:') ? await dataUrlToBlob(e.photo) : null;
+      if (mode === 'local') {
+        await localDb.put({ id: String(e.id), created: e.created || e.time, time: e.time, type, note, photo: blob, author: e.author || '' });
+      } else {
+        const id = isUuid(e.id) ? e.id : uid();
+        let path = null;
+        if (blob) {
+          path = `${id}/${e.created || e.time}.jpg`;
+          const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+          if (error) throw error;
+        }
+        const { error } = await sb.from(TABLE).upsert({
+          id, time: new Date(e.time).toISOString(), type, note, photo_path: path, author: e.author || myName(),
+        });
+        if (error) throw error;
+      }
+      done++;
+    }
+    // Vorgaben, die dieses Gerät angelegt hat, entfernen, wenn das Backup das
+    // Medikament schon unter einer eigenen ID enthält (sonst doppelt)
+    const backupIds = new Set(meds.map((m) => String(m.id)));
+    const backupNames = new Set(meds.map((m) => String(m.name).toLowerCase()));
+    for (const sd of MED_SEED) {
+      if (backupIds.has(sd.id) || !backupNames.has(sd.name.toLowerCase())) continue;
+      if (!state.meds.some((m) => m.id === sd.id)) continue;
+      if (mode === 'local') await localMeds.remove(sd.id);
+      else await sb.from(MED_TABLE).delete().eq('id', sd.id);
+    }
+  } catch (err) {
+    info.textContent = `${done} von ${entries.length} eingelesen. Fehler: ${friendlyError(err)} Du kannst es erneut versuchen, nichts wird doppelt angelegt.`;
+    btn.disabled = false;
+    await loadEntries();
+    return;
+  }
+  backupDlg.close();
+  toast(`Backup eingelesen: ${done} Einträge ✓`);
+  await loadEntries();
+});
+backupDlg.addEventListener('close', resetBackupDialog);
+
 /* ---------- Anmeldung ---------- */
 $('#loginForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
@@ -1077,6 +1292,7 @@ menu.addEventListener('click', async (e) => {
   const action = e.target.dataset.action;
   if (!action) return;
   menu.hidden = true;
+  if (action === 'backup') openBackup();
   if (action === 'name') askName();
   if (action === 'password') {
     $('#passwordInput').value = '';
@@ -1186,8 +1402,8 @@ $('#migrateBtn').addEventListener('click', async () => {
 /* ---------- Start ---------- */
 function startLocal() {
   mode = 'local';
+  document.body.classList.add('local-mode');
   showScreen('app');
-  $('#menuBtn').hidden = true;
   $('#localHint').hidden = false;
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   render();

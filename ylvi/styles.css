@@ -484,3 +484,15 @@ textarea { resize: vertical; }
 .stopped { padding: 0 0 10px; }
 .stat b.dose-lines { font-size: .95rem; line-height: 1.35; }
 .wday-head strong { gap: 4px 0; }
+
+/* ---------- Backup ---------- */
+.local-hint { display: grid; gap: 6px; }
+.local-hint p { margin: 0; }
+.backup-line { font-size: .85rem; }
+.link-btn {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  color: var(--accent); font-weight: 700; text-decoration: underline; font-size: inherit;
+}
+.local-mode .cloud-only { display: none !important; }
+.sep { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.sub-title { margin: 0; font-size: 1rem; }
