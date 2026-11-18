@@ -4,6 +4,7 @@ Pipi-Protokoll für Katze Ylvi (Blasenprobleme) mit Beweisfotos und Medikationsv
 Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge erscheinen sofort bei allen.
 
 ## Funktionen
+- **Versuch ohne Erfolg**: als eigene Eintragsart (✖), wenn Ylvi es versucht hat und nichts kam. Wird überall getrennt gezählt und nicht als Pipi gewertet.
 - **Pipi eintragen**: Uhrzeit (vorausgefüllt mit „jetzt“), optionale Notiz (z. B. Menge, Blut, Pressen) und Beweisfoto per Kamera oder Galerie
 - **Verlauf**: alle Pipi-Einträge nach Tagen, mit Vorschaubild; Dosisänderungen erscheinen direkt im Verlauf
 - **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste und die an dem Tag gültige Dosis; Tage mit Dosisänderung sind hervorgehoben

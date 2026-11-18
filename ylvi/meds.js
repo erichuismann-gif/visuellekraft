@@ -83,10 +83,16 @@ const YlviMeds = (() => {
         const a = p.from.getTime();
         const b = p.to.getTime();
         const days = Math.round((b - a) / 86400000);
-        const times = entries.filter((e) => e.time >= a && e.time < b).map((e) => e.time).sort((x, y) => x - y);
+        const inP = entries.filter((e) => e.time >= a && e.time < b);
+        // Nur erfolgreiche Pipi zählen; Versuche ohne Erfolg separat
+        const times = inP.filter((e) => e.type !== 'versuch').map((e) => e.time).sort((x, y) => x - y);
+        const attempts = inP.filter((e) => e.type === 'versuch').length;
         let gap = 0;
         for (let i = 1; i < times.length; i++) gap = Math.max(gap, times[i] - times[i - 1]);
-        return { ...p, days, count: times.length, avg: days ? times.length / days : 0, longestGap: gap };
+        return {
+          ...p, days, count: times.length, avg: days ? times.length / days : 0,
+          attempts, avgAttempts: days ? attempts / days : 0, longestGap: gap,
+        };
       })
       .filter((p) => p.days > 0);
   }

@@ -8,7 +8,7 @@
 create table if not exists public.entries (
   id          uuid primary key default gen_random_uuid(),
   time        timestamptz not null,
-  type        text not null check (type in ('pipi', 'kacka', 'beides')),
+  type        text not null,             -- 'pipi' oder 'versuch' (ohne Erfolg)
   note        text not null default '' check (char_length(note) <= 500),
   photo_path  text,
   author      text not null default '',
@@ -16,6 +16,11 @@ create table if not exists public.entries (
   created_at  timestamptz not null default now()
 );
 create index if not exists entries_time_idx on public.entries (time desc);
+
+-- erlaubte Arten (auch für schon bestehende Tabellen aktualisieren)
+alter table public.entries drop constraint if exists entries_type_check;
+alter table public.entries add constraint entries_type_check
+  check (type in ('pipi', 'versuch', 'kacka', 'beides'));
 
 -- 2) Zugriff nur für angemeldete Personen (Row Level Security)
 alter table public.entries enable row level security;

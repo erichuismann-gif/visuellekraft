@@ -10,7 +10,7 @@
 /* ---------- Versionsprüfung ----------
    Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
    mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
-const APP_VERSION = '7';
+const APP_VERSION = '8';
 (() => {
   const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
   if (pageVersion === APP_VERSION) {
@@ -213,7 +213,14 @@ const signedUrls = new Map();
 function myName() {
   return (me && me.user_metadata && me.user_metadata.name) || (me && me.email ? me.email.split('@')[0] : '');
 }
-const isUrine = (type) => type !== 'kacka'; // 'pipi' und früheres 'beides'
+const isUrine = (type) => type !== 'kacka'; // 'pipi', 'versuch' und früheres 'beides'
+const normType = (type) => (type === 'versuch' ? 'versuch' : 'pipi');
+const KIND = {
+  pipi:    { label: 'Pipi',    long: 'Pipi gemacht',        icon: '💧' },
+  versuch: { label: 'Versuch', long: 'Versuch ohne Erfolg', icon: '✖' },
+};
+const isPipi = (e) => e.type === 'pipi';
+const isAttempt = (e) => e.type === 'versuch';
 
 /* ---------- Daten laden ---------- */
 let loading = null;
@@ -265,7 +272,7 @@ async function loadCloudData() {
     .map((r) => ({
       id: r.id,
       time: Date.parse(r.time),
-      type: 'pipi',
+      type: normType(r.type),
       note: r.note || '',
       photo: r.photo_path || null,
       author: r.author || '',
@@ -300,7 +307,7 @@ async function loadLocalData() {
         photo = 'local:' + r.id;
         localPhotoUrls.set(photo, URL.createObjectURL(r.photo));
       }
-      return { id: r.id, time: r.time, type: 'pipi', note: r.note || '', photo, author: '' };
+      return { id: r.id, time: r.time, type: normType(r.type), note: r.note || '', photo, author: '' };
     });
   state.meds = meds.map((m) => ({ ...m, created: m.created || 0 }));
 }
@@ -391,8 +398,11 @@ function renderStatus() {
   if (!me && mode !== 'local') { el.textContent = 'Pipi-Protokoll für Ylvi'; medEl.hidden = true; return; }
   if (!state.loaded) { el.textContent = 'Einträge werden geladen…'; return; }
   const now = Date.now();
-  const last = state.entries.find((e) => e.time <= now);
-  el.textContent = last ? `Zuletzt Pipi ${ago(now - last.time)}` : 'Noch keine Einträge';
+  const last = state.entries.find((e) => isPipi(e) && e.time <= now);
+  const lastTry = state.entries.find((e) => isAttempt(e) && e.time <= now);
+  let txt = last ? `Zuletzt Pipi ${ago(now - last.time)}` : (lastTry ? 'Noch kein Pipi eingetragen' : 'Noch keine Einträge');
+  if (lastTry && (!last || lastTry.time > last.time)) txt += ` · danach ✖ Versuch ${ago(now - lastTry.time)}`;
+  el.textContent = txt;
   const cur = doseLabel(new Date(), true);
   medEl.hidden = !cur;
   medEl.textContent = cur ? `💊 ${cur}` : '';
@@ -401,22 +411,25 @@ function renderStatus() {
 function renderList() {
   const now = new Date();
   const t0 = startOfDay(now).getTime();
-  const today = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000).length;
-  const last7 = state.entries.filter((e) => e.time >= t0 - 6 * 86400000 && e.time < t0).length; // 6 volle Tage + heute separat
+  const todays = state.entries.filter((e) => e.time >= t0 && e.time < t0 + 86400000);
+  const today = todays.filter(isPipi).length;
+  const todayTries = todays.filter(isAttempt).length;
+  const last7 = state.entries.filter((e) => isPipi(e) && e.time >= t0 - 6 * 86400000 && e.time < t0).length; // 6 volle Tage + heute
   const avg7 = (last7 + today) / 7;
   const doses = dosesOn(now);
   const doseVal = doses.length ? YlviMeds.label(state.meds, doses) : '–';
   const doseSub = doses.length === 1 ? `${doses[0].name}${doses[0].change.start ? ` seit ${fmtDayShort(YlviMeds.keyToDate(doses[0].change.start))}` : ''}` : 'Medikation';
   $('#todaySummary').innerHTML = `
     <div class="stat"><b>${today}</b><span>💧 Pipi heute</span></div>
-    <div class="stat"><b>${fmtNum(avg7)}</b><span>Ø pro Tag (7 Tage)</span></div>
+    <div class="stat attempt"><b>${todayTries}</b><span>✖ Versuche heute</span></div>
+    <div class="stat"><b>${fmtNum(avg7)}</b><span>Ø Pipi pro Tag (7 Tage)</span></div>
     <div class="stat"><b>${esc(doseVal)}</b><span>💊 ${esc(doseSub)}</span></div>`;
 
   const list = $('#list');
   if (!state.entries.length && !state.meds.some((m) => m.start)) {
     list.innerHTML = `<div class="empty-state"><div class="big">🐱</div>
       <p>${state.loaded
-        ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi Pipi gemacht hat.'
+        ? 'Noch nichts eingetragen.<br>Tippe unten auf <b>＋ Eintrag</b>, wenn Ylvi Pipi gemacht oder es vergeblich versucht hat.'
         : 'Einträge werden geladen…'}</p></div>`;
     return;
   }
@@ -440,7 +453,9 @@ function renderList() {
     const g = groups.get(k);
     const day = YlviMeds.keyToDate(k);
     const dl = doseLabel(day);
-    html += `<div class="day-head"><span>${esc(dayTitle(day))}</span><span>💧 ${g.entries.length}${dl ? ` · 💊 ${esc(dl)}` : ''}</span></div>`;
+    const gp = g.entries.filter(isPipi).length;
+    const gt = g.entries.filter(isAttempt).length;
+    html += `<div class="day-head"><span>${esc(dayTitle(day))}</span><span>💧 ${gp}${gt ? ` · ✖ ${gt}` : ''}${dl ? ` · 💊 ${esc(dl)}` : ''}</span></div>`;
     for (const e of g.entries) {
       const url = photoUrl(e.photo);
       const thumb = url
@@ -452,7 +467,7 @@ function renderList() {
         <div class="entry" role="button" tabindex="0" data-edit="${esc(e.id)}">
           ${thumb}
           <div class="entry-main">
-            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge pipi">💧 Pipi</span>${e.author ? `<span class="author">${esc(e.author)}</span>` : ''}</div>
+            <div class="entry-time">${fmtTime(new Date(e.time))}<span class="badge ${e.type}">${KIND[e.type].icon} ${KIND[e.type].long}</span>${e.author ? `<span class="author">${esc(e.author)}</span>` : ''}</div>
             <div class="entry-note">${e.note ? esc(e.note) : '&nbsp;'}</div>
           </div>
         </div>`;
@@ -481,17 +496,17 @@ function renderWeek() {
     const dots = items.map((e) => {
       const d = new Date(e.time);
       const pct = ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100;
-      const lbl = `${fmtTime(d)} Pipi`;
-      return `<button class="pipi" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
+      const lbl = `${fmtTime(d)} ${KIND[e.type].long}`;
+      return `<button class="${e.type}" style="left:${pct.toFixed(2)}%" data-edit="${esc(e.id)}" title="${lbl}" aria-label="${lbl}"></button>`;
     }).join('');
     const chips = items.map((e) =>
-      `<button class="chip" data-edit="${esc(e.id)}">💧 ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}${e.note ? ' ✎' : ''}</button>`
+      `<button class="chip${isAttempt(e) ? ' attempt' : ''}" data-edit="${esc(e.id)}">${KIND[e.type].icon} ${fmtTime(new Date(e.time))}${e.photo ? ' 📷' : ''}${e.note ? ' ✎' : ''}</button>`
     ).join('');
     html += `
       <div class="wday${dayKey(day) === todayKey ? ' is-today' : ''}">
         <div class="wday-head">
           <strong>${esc(fmtDayShort(day))}${dl ? `<span class="dose-chip${changed ? ' changed' : ''}" title="${changed ? 'Dosis geändert' : 'Dosis'}">💊 ${esc(dl)}</span>` : ''}</strong>
-          <span class="wday-counts">${items.length ? `💧 ${items.length}` : '–'}</span>
+          <span class="wday-counts">${items.length ? `💧 ${items.filter(isPipi).length}${items.some(isAttempt) ? ` · ✖ ${items.filter(isAttempt).length}` : ''}` : '–'}</span>
         </div>
         <div class="timeline">${dots}</div>
         <div class="timeline-scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
@@ -516,12 +531,12 @@ function renderMeds() {
     const first = startOfDay(new Date(Math.min(...state.entries.map((e) => e.time))));
     const rows = YlviMeds.compare(state.entries, state.meds, first, addDays(startOfDay(now), 1), Date.now());
     cmpEl.innerHTML = `<table class="cmp">
-      <thead><tr><th>Dosis</th><th class="num">Tage</th><th class="num">Pipi</th><th class="num">Ø pro Tag</th></tr></thead>
+      <thead><tr><th>Dosis</th><th class="num">Tage</th><th class="num">Ø Pipi<br>pro Tag</th><th class="num">Ø Versuche<br>pro Tag</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td><b>${esc(YlviMeds.label(state.meds, r.doses) || 'ohne')}</b><small>${esc(fmtDayShort(r.from))} – ${esc(fmtDayShort(addDays(r.to, -1)))}</small></td>
         <td class="num">${r.days}</td>
-        <td class="num">${r.count}</td>
-        <td class="num big">${fmtNum(r.avg)}</td>
+        <td class="num big">${fmtNum(r.avg)}<small>${r.count} gesamt</small></td>
+        <td class="num">${fmtNum(r.avgAttempts)}<small>${r.attempts} gesamt</small></td>
       </tr>`).join('')}</tbody></table>
       <p class="muted small" style="margin-top:6px">Der heutige Tag zählt schon mit, auch wenn er noch nicht vorbei ist.${rows.some((r) => r.longestGap) ? ` Längste Pause: ${rows.map((r) => `${esc(YlviMeds.label(state.meds, r.doses))} ${r.longestGap ? fmtDuration(r.longestGap) : '–'}`).join(' · ')}` : ''}</p>`;
   }
@@ -579,7 +594,8 @@ function openForm(entry = null) {
   pendingPhoto = undefined;
   form.reset();
   showError($('#formError'), '');
-  $('#formTitle').textContent = entry ? 'Pipi bearbeiten' : 'Pipi eintragen';
+  $('#formTitle').textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
+  form.querySelector(`input[name=kind][value=${entry ? entry.type : 'pipi'}]`).checked = true;
   $('#deleteBtn').hidden = !entry;
   $('#saveBtn').disabled = false;
   form.time.value = toLocalInput(entry ? new Date(entry.time) : new Date());
@@ -589,6 +605,13 @@ function openForm(entry = null) {
   meta.textContent = entry && entry.author ? `Eingetragen von ${entry.author}` : '';
   setPreview(entry?.photo ? photoUrl(entry.photo) : null);
   dlg.showModal();
+}
+function selectedKind() {
+  return normType(form.querySelector('input[name=kind]:checked')?.value);
+}
+function savedText(withPhoto) {
+  const what = selectedKind() === 'versuch' ? 'Versuch ohne Erfolg' : 'Pipi';
+  return `${what}${withPhoto ? ' mit Beweisfoto' : ''} gespeichert ✓`;
 }
 function closeForm() {
   if (dlg.open) dlg.close();
@@ -631,13 +654,13 @@ form.addEventListener('submit', async (ev) => {
         id,
         created: prev ? prev.created : Date.now(),
         time: fromLocalInput(form.time.value).getTime(),
-        type: 'pipi',
+        type: selectedKind(),
         note: form.note.value.trim().slice(0, 500),
         photo,
       });
       const wasNew = !editing;
       closeForm();
-      toast(wasNew ? (photo ? 'Pipi mit Beweisfoto gespeichert ✓' : 'Pipi gespeichert ✓') : 'Änderungen gespeichert ✓');
+      toast(wasNew ? savedText(!!photo) : 'Änderungen gespeichert ✓');
       await loadEntries();
     } catch (err) {
       showError($('#formError'), 'Speichern auf dem Handy hat nicht geklappt: ' + (err?.message || err));
@@ -657,7 +680,7 @@ form.addEventListener('submit', async (ev) => {
     }
     const row = {
       time: fromLocalInput(form.time.value).toISOString(),
-      type: 'pipi',
+      type: selectedKind(),
       note: form.note.value.trim().slice(0, 500),
       photo_path: photoPath,
     };
@@ -668,7 +691,7 @@ form.addEventListener('submit', async (ev) => {
     if (oldPhoto && oldPhoto !== photoPath) sb.storage.from(BUCKET).remove([oldPhoto]).catch(() => {});
     const wasNew = !editing;
     closeForm();
-    toast(wasNew ? (photoPath ? 'Pipi mit Beweisfoto gespeichert ✓' : 'Pipi gespeichert ✓') : 'Änderungen gespeichert ✓');
+    toast(wasNew ? savedText(!!photoPath) : 'Änderungen gespeichert ✓');
     await loadEntries();
   } catch (err) {
     if (uploaded) sb.storage.from(BUCKET).remove([uploaded]).catch(() => {});
@@ -786,7 +809,7 @@ function showPhoto(entry) {
   if (!url) return;
   $('#photoLarge').src = url;
   const d = new Date(entry.time);
-  $('#photoCaption').textContent = `💧 Pipi · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr` + (entry.author ? ` · ${entry.author}` : '');
+  $('#photoCaption').textContent = `${KIND[entry.type].icon} ${KIND[entry.type].long} · ${fmtDayLong(d)}, ${fmtTime(d)} Uhr` + (entry.author ? ` · ${entry.author}` : '');
   $('#photoDialog').showModal();
 }
 $('#closePhoto').addEventListener('click', () => $('#photoDialog').close());
@@ -1067,7 +1090,7 @@ async function checkLocalData() {
   const box = $('#migrateBox');
   if (!rows.length && !meds.length) { box.hidden = true; return; }
   const parts = [];
-  if (rows.length) parts.push(rows.length === 1 ? '1 Pipi-Eintrag' : `${rows.length} Pipi-Einträge`);
+  if (rows.length) parts.push(rows.length === 1 ? '1 Eintrag' : `${rows.length} Einträge`);
   if (meds.length) parts.push(meds.length === 1 ? '1 Medikations-Eintrag' : `${meds.length} Medikations-Einträge`);
   $('#migrateText').textContent = `Auf diesem Handy liegen noch ${parts.join(' und ')} aus der Zeit ohne Datenbank.`;
   $('#migrateBtn').disabled = false;
@@ -1098,7 +1121,7 @@ $('#migrateBtn').addEventListener('click', async () => {
       const { error } = await sb.from(TABLE).upsert({
         id,
         time: new Date(r.time).toISOString(),
-        type: 'pipi',
+        type: normType(r.type),
         note: (r.note || '').slice(0, 500),
         photo_path: path,
         author: myName(),

@@ -27,6 +27,7 @@ const YlviPdf = (() => {
     bar: [244, 239, 233],
     accent: [184, 97, 47],
     pipi: [217, 169, 31],
+    attempt: [180, 55, 42],
     white: [255, 255, 255],
   };
 
@@ -139,6 +140,18 @@ const YlviPdf = (() => {
       fill(C.pipi);
       doc.circle(x, cy, 1.55, 'FD');
     }
+    function attemptMarker(x, cy) {
+      // hohler roter Ring mit Kreuz – auch schwarz-weiß gedruckt erkennbar
+      fill(C.white);
+      stroke(C.attempt);
+      doc.setLineWidth(0.45);
+      doc.circle(x, cy, 1.45, 'FD');
+      doc.setLineWidth(0.3);
+      doc.line(x - 0.75, cy - 0.75, x + 0.75, cy + 0.75);
+      doc.line(x - 0.75, cy + 0.75, x + 0.75, cy - 0.75);
+    }
+    const isAttempt = (e) => e.type === 'versuch';
+    const marker = (e, x, cy) => (isAttempt(e) ? attemptMarker(x, cy) : pipiDot(x, cy));
     function doseMarker(x, cy) {
       fill(C.accent);
       doc.triangle(x - 1.3, cy - 1.6, x - 1.3, cy + 1.6, x + 1.5, cy, 'F');
@@ -203,7 +216,8 @@ const YlviPdf = (() => {
 
     /* ---------- Zusammenfassung ---------- */
     const effDays = Math.max(1, Math.round((effTo - rangeFrom) / 86400000));
-    const times = inRange.map((e) => e.time);
+    const times = inRange.filter((e) => !isAttempt(e)).map((e) => e.time);
+    const attemptCount = inRange.filter(isAttempt).length;
     let maxDay = { n: 0, d: null };
     for (let d = 0; d < effDays; d++) {
       const a = addDays(weekStart0, d).getTime();
@@ -212,10 +226,10 @@ const YlviPdf = (() => {
       if (n > maxDay.n) maxDay = { n, d: new Date(a) };
     }
     const stats = [
-      ['Pipi gesamt', `${times.length}`, `an ${effDays} ${effDays === 1 ? 'Tag' : 'Tagen'}`],
-      ['Ø pro Tag', fmtNum(times.length / effDays), 'im ganzen Zeitraum'],
-      ['Meiste an einem Tag', maxDay.n ? `${maxDay.n}` : '–', maxDay.d ? `${WD[maxDay.d.getDay()]} ${fmtDate(maxDay.d)}` : ''],
-      ['Längste Pause', times.length > 1 ? fmtDuration(longestGap(times)) : '–', 'zwischen zwei Einträgen'],
+      ['Pipi gesamt', `${times.length}`, `Ø ${fmtNum(times.length / effDays)} pro Tag (${effDays} Tage)`],
+      ['Versuche ohne Erfolg', `${attemptCount}`, `Ø ${fmtNum(attemptCount / effDays)} pro Tag`],
+      ['Meiste Pipi an einem Tag', maxDay.n ? `${maxDay.n}` : '–', maxDay.d ? `${WD[maxDay.d.getDay()]} ${fmtDate(maxDay.d)}` : ''],
+      ['Längste Pause', times.length > 1 ? fmtDuration(longestGap(times)) : '–', 'zwischen zwei Pipi'],
     ];
     const colW = CONTENT_W / 4;
     stats.forEach(([label, value, sub], i) => {
@@ -233,7 +247,7 @@ const YlviPdf = (() => {
     font('normal', 7.5, C.muted);
     doc.text(
       `Ausgewertet bis ${fmtDate(new Date(effTo - 1))} (der heutige Tag zählt mit). ` +
-      'Enthält nur beobachtete und eingetragene Pipi-Besuche.',
+      'Enthält nur beobachtete und eingetragene Pipi und Versuche. Versuche zählen nicht als Pipi.',
       M, y
     );
     y += 7;
@@ -258,11 +272,13 @@ const YlviPdf = (() => {
           ensureSpace(8 + 6 + cmp.length * 5.2);
           sectionTitle('Pipi je Dosis', 'im gewählten Zeitraum');
           table(
-            [['Dosis', 42], ['Zeitraum', 42], ['Tage', 16, 'right'], ['Pipi', 16, 'right'], ['Ø pro Tag', 24, 'right'], ['', 8], ['Längste Pause', CONTENT_W - 148]],
+            [['Dosis', 34], ['Zeitraum', 36], ['Tage', 12, 'right'], ['Pipi', 12, 'right'], ['Ø Pipi/Tag', 20, 'right'],
+              ['Versuche', 17, 'right'], ['Ø Vers./Tag', 21, 'right'], ['', 4], ['Längste Pause', CONTENT_W - 156]],
             cmp.map((p) => [
               YlviMeds.label(meds, p.doses, { long: true }) || 'ohne',
               `${fmtDateShort(p.from)} – ${fmtDate(addDays(p.to, -1))}`,
-              String(p.days), String(p.count), fmtNum(p.avg), '',
+              String(p.days), String(p.count), fmtNum(p.avg),
+              String(p.attempts), fmtNum(p.avgAttempts), '',
               p.longestGap ? fmtDuration(p.longestGap) : '–',
             ]),
             { boldCol: 4 }
@@ -277,9 +293,12 @@ const YlviPdf = (() => {
     font('normal', 8.5);
     pipiDot(M + 2, y - 1);
     doc.text('Pipi', M + 5, y);
-    let lx = M + 5 + doc.getTextWidth('Pipi') + 8;
+    let lx = M + 5 + doc.getTextWidth('Pipi') + 7;
+    attemptMarker(lx + 1.5, y - 1);
+    doc.text('Versuch ohne Erfolg (V)', lx + 4.5, y);
+    lx += 4.5 + doc.getTextWidth('Versuch ohne Erfolg (V)') + 7;
     doc.text('* = mit Notiz', lx, y);
-    lx += doc.getTextWidth('* = mit Notiz') + 8;
+    lx += doc.getTextWidth('* = mit Notiz') + 7;
     if (meds.length) {
       doseMarker(lx + 1.5, y - 1);
       doc.text('Dosisänderung', lx + 4.5, y);
@@ -306,7 +325,9 @@ const YlviPdf = (() => {
       font('normal', 10, C.muted);
       doc.text(`${WD[ws.getDay()]} ${fmtDateShort(ws)} – ${WD[addDays(we, -1).getDay()]} ${fmtDate(addDays(we, -1))}`, M + kwW + 3, y + 4.5);
       font('bold', 9.5);
-      doc.text(`Pipi ${wEntries.length}${wDays ? ` · Ø ${fmtNum(wEntries.length / wDays)}/Tag` : ''}`, A4.w - M, y + 4.5, { align: 'right' });
+      const wp = wEntries.filter((e) => !isAttempt(e)).length;
+      const wt = wEntries.filter(isAttempt).length;
+      doc.text(`Pipi ${wp}${wDays ? ` · Ø ${fmtNum(wp / wDays)}/Tag` : ''}${wt ? ` · Versuche ${wt}` : ''}`, A4.w - M, y + 4.5, { align: 'right' });
 
       font('normal', 6.5, C.muted);
       for (let hh = 0; hh <= 24; hh += 3) {
@@ -360,19 +381,26 @@ const YlviPdf = (() => {
           doc.setLineWidth(0.4);
           doc.roundedRect(BAR_X, by, BAR_W, BAR_H, 1, 1, 'S');
         }
-        for (const e of items) {
+        // erst Pipi, dann Versuche darüber zeichnen
+        for (const e of [...items].sort((a, b) => isAttempt(a) - isAttempt(b))) {
           const t = new Date(e.time);
-          pipiDot(BAR_X + (BAR_W * (t.getHours() * 60 + t.getMinutes())) / 1440, by + BAR_H / 2);
+          marker(e, BAR_X + (BAR_W * (t.getHours() * 60 + t.getMinutes())) / 1440, by + BAR_H / 2);
         }
 
         // Anzahl rechts
+        const nP = items.filter((e) => !isAttempt(e)).length;
+        const nT = items.length - nP;
         font(items.length ? 'bold' : 'normal', 9, items.length ? C.text : C.muted);
-        doc.text(items.length ? `${items.length} Pipi` : (future ? '' : '–'), A4.w - M, by + BAR_H - 0.8, { align: 'right' });
+        doc.text(items.length ? `${nP} Pipi` : (future ? '' : '–'), A4.w - M, by + BAR_H - 0.8, { align: 'right' });
+        if (nT) {
+          font('bold', 6.8, C.attempt);
+          doc.text(`+ ${nT} ${nT === 1 ? 'Versuch' : 'Versuche'}`, A4.w - M, by + BAR_H + 3.2, { align: 'right' });
+        }
 
         // Uhrzeiten unter dem Balken
         if (items.length) {
           font('normal', 6.5, C.muted);
-          const txt = items.map((e) => `${fmtTime(new Date(e.time))}${e.note ? '*' : ''}`).join('    ');
+          const txt = items.map((e) => `${fmtTime(new Date(e.time))}${isAttempt(e) ? ' V' : ''}${e.note ? '*' : ''}`).join('    ');
           const lines = doc.splitTextToSize(txt, BAR_W);
           doc.text(lines[0] + (lines.length > 1 ? ' …' : ''), BAR_X, by + BAR_H + 3.2);
         }
@@ -392,11 +420,11 @@ const YlviPdf = (() => {
       sectionTitle('Notizen', 'in der Zeitleiste mit * markiert');
       const showAuthor = authors.size > 0;
       const cols = showAuthor
-        ? [['Datum', 28], ['Zeit', 14], ['Von', 22], ['Notiz', CONTENT_W - 64]]
-        : [['Datum', 28], ['Zeit', 14], ['Notiz', CONTENT_W - 42]];
+        ? [['Datum', 28], ['Zeit', 14], ['Art', 18], ['Von', 22], ['Notiz', CONTENT_W - 82]]
+        : [['Datum', 28], ['Zeit', 14], ['Art', 18], ['Notiz', CONTENT_W - 60]];
       table(cols, withNotes.map((e) => {
         const d = new Date(e.time);
-        const base = [`${WD[d.getDay()]} ${fmtDate(d)}`, fmtTime(d)];
+        const base = [`${WD[d.getDay()]} ${fmtDate(d)}`, fmtTime(d), isAttempt(e) ? 'Versuch' : 'Pipi'];
         return showAuthor ? [...base, e.author || '', e.note] : [...base, e.note];
       }));
     }
@@ -434,9 +462,9 @@ const YlviPdf = (() => {
           doc.text('Foto nicht verfügbar', x + cellW / 2, y + imgMaxH / 2, { align: 'center' });
         }
         const d = new Date(e.time);
-        pipiDot(x + 2, y + imgMaxH + 4);
+        marker(e, x + 2, y + imgMaxH + 4);
         font('bold', 8.5);
-        doc.text(`${WD[d.getDay()]} ${fmtDate(d)}, ${fmtTime(d)} Uhr`, x + 5, y + imgMaxH + 5);
+        doc.text(`${WD[d.getDay()]} ${fmtDate(d)}, ${fmtTime(d)} Uhr${isAttempt(e) ? ' · Versuch ohne Erfolg' : ''}`, x + 5, y + imgMaxH + 5);
         if (e.note) {
           font('normal', 7.5, C.muted);
           const nl = doc.splitTextToSize(e.note, cellW - 5);
