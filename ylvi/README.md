@@ -11,6 +11,8 @@ Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge er
 - **Medikation**: mehrere Medikamente (z. B. Fluoxetin und Alfuzosin), je Medikament Dosisänderungen eintragen oder absetzen (0 mg), Verlauf der Medikation und Vergleich „Ø Pipi pro Tag je Dosis-Kombination“
 - **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Medikation, Vergleich je Dosis, Zusammenfassung, optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar.
 - **Backup** (Menü ⋯): alle Einträge, Fotos und Medikation als eine Datei speichern (auf dem Handy direkt teilen, z. B. in „Dateien“ oder iCloud) und wieder einlesen – auch auf einem anderen Handy. Beim Einlesen bleibt Vorhandenes erhalten, nichts wird doppelt angelegt.
+- **Doppelte erkennen**: Beim Einlesen eines Backups (z. B. von der Freundin) werden Einträge gleicher Art mit höchstens 10 Minuten Abstand als mögliche Doppelte angezeigt und – wenn angehakt – zusammengeführt (Foto/Notiz werden ergänzt).
+- **Foto von Ylvi**: Antippen des runden Bildes oben; erscheint im Kopf, verschwommen im Hintergrund, im PDF und im Backup.
 - **Status oben**: wie lange das letzte Pipi her ist und die aktuelle Dosis
 - **Gemeinsam & live** (mit Datenbank): Trägt eine Person etwas ein, sieht die andere es sofort
 

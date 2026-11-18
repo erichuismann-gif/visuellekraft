@@ -10,7 +10,7 @@
 /* ---------- Versionsprüfung ----------
    Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
    mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
-const APP_VERSION = '10';
+const APP_VERSION = '11';
 (() => {
   const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
   if (pageVersion === APP_VERSION) {
@@ -1010,6 +1010,7 @@ $('#pdfForm').addEventListener('submit', async (ev) => {
       from: r.from,
       to: r.to,
       meds: state.meds,
+      ylviPhoto,
       includeNotes: $('#pdfNotes').checked,
       includePhotos: $('#pdfPhotos').checked && !$('#pdfPhotos').disabled,
       getPhotoBlob,
@@ -1029,6 +1030,101 @@ $('#pdfForm').addEventListener('submit', async (ev) => {
     btn.disabled = false;
   }
 });
+
+/* ---------- Foto von Ylvi ---------- */
+const YLVI_PHOTO_KEY = 'ylvi-photo';
+const YLVI_PHOTO_PATH = 'profile/ylvi.jpg';
+let ylviPhoto = null; // data:-URL (quadratisch, JPEG)
+
+function applyYlviPhoto() {
+  const src = ylviPhoto || 'icon.svg';
+  $('#avatarImg').src = src;
+  $('#ylviPreview').src = src;
+  $('#bgPhoto').style.backgroundImage = ylviPhoto ? `url("${ylviPhoto}")` : '';
+  document.body.classList.toggle('has-photo', !!ylviPhoto);
+  $('#ylviRemove').hidden = !ylviPhoto;
+}
+function loadYlviPhotoLocal() {
+  try { ylviPhoto = localStorage.getItem(YLVI_PHOTO_KEY) || null; } catch { ylviPhoto = null; }
+  applyYlviPhoto();
+}
+async function squareJpeg(file, size = 640) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Das Bild konnte nicht gelesen werden.'));
+      i.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = c.height = Math.min(size, side);
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+async function uploadYlviPhoto(dataUrl) {
+  if (mode !== 'cloud' || !sb) return;
+  if (dataUrl) {
+    const blob = await dataUrlToBlob(dataUrl);
+    const { error } = await sb.storage.from(BUCKET).upload(YLVI_PHOTO_PATH, blob, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw error;
+  } else {
+    await sb.storage.from(BUCKET).remove([YLVI_PHOTO_PATH]);
+  }
+}
+async function setYlviPhoto(dataUrl, { sync = true } = {}) {
+  ylviPhoto = dataUrl || null;
+  try {
+    if (ylviPhoto) localStorage.setItem(YLVI_PHOTO_KEY, ylviPhoto);
+    else localStorage.removeItem(YLVI_PHOTO_KEY);
+  } catch { /* Speicher voll – Foto gilt dann nur bis zum Neuladen */ }
+  applyYlviPhoto();
+  if (sync) await uploadYlviPhoto(ylviPhoto);
+}
+// Mit Datenbank: Foto für alle teilen
+async function syncYlviPhotoFromCloud() {
+  const { data } = await sb.storage.from(BUCKET).createSignedUrls([YLVI_PHOTO_PATH], 3600);
+  const url = data && data[0] && data[0].signedUrl;
+  if (!url) {
+    if (ylviPhoto) await uploadYlviPhoto(ylviPhoto); // lokales Foto erstmals hochladen
+    return;
+  }
+  const res = await fetch(url);
+  if (!res.ok) return;
+  const d = await blobToDataUrl(await res.blob());
+  if (d !== ylviPhoto) await setYlviPhoto(d, { sync: false });
+}
+
+const ylviDlg = $('#ylviDialog');
+function openYlviDialog() {
+  showError($('#ylviError'), '');
+  applyYlviPhoto();
+  ylviDlg.showModal();
+}
+async function handleYlviInput(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    await setYlviPhoto(await squareJpeg(file));
+    showError($('#ylviError'), '');
+    toast('Foto von Ylvi gespeichert ✓');
+  } catch (err) {
+    showError($('#ylviError'), friendlyError(err));
+  }
+}
+$('#avatarBtn').addEventListener('click', openYlviDialog);
+$('#ylviCamera').addEventListener('change', handleYlviInput);
+$('#ylviGallery').addEventListener('change', handleYlviInput);
+$('#ylviClose').addEventListener('click', () => ylviDlg.close());
+$('#ylviRemove').addEventListener('click', async () => {
+  try { await setYlviPhoto(null); toast('Foto entfernt'); } catch (err) { showError($('#ylviError'), friendlyError(err)); }
+});
+loadYlviPhotoLocal();
 
 /* ---------- Backup ---------- */
 const BACKUP_LAST = 'ylvi-last-backup';
@@ -1068,6 +1164,7 @@ function resetBackupDialog() {
   $('#backupSave').textContent = '💾 Backup erstellen';
   $('#backupSave').disabled = false;
   $('#backupPreview').hidden = true;
+  $('#dupBox').hidden = true;
   $('#backupImport').disabled = false;
   showError($('#backupProgress'), '');
   showError($('#backupError'), '');
@@ -1109,7 +1206,7 @@ async function buildBackup(progress) {
   const meds = (mode === 'local' ? await localMeds.all() : state.meds).map((m) => ({
     id: m.id, name: m.name, dose: m.dose, start: m.start, note: m.note || '', author: m.author || '', created: m.created || 0,
   }));
-  const data = { app: 'ylvi-klo', version: 2, exported: new Date().toISOString(), entries, meds };
+  const data = { app: 'ylvi-klo', version: 2, exported: new Date().toISOString(), entries, meds, ylviPhoto: ylviPhoto || null };
   const now = new Date();
   const filename = `Ylvi-Backup_${toDateInput(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}.json`;
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), filename, count: entries.length, photos: entries.filter((e) => e.photo).length, meds: meds.length };
@@ -1154,6 +1251,68 @@ $('#backupSave').addEventListener('click', async () => {
   btn.disabled = false;
 });
 
+/* Doppelte: gleiche Art, höchstens 10 Minuten auseinander, im Backup neu */
+const DUP_WINDOW = 10 * 60 * 1000;
+function findDuplicates(incoming, knownIds) {
+  const used = new Set();
+  const out = [];
+  for (const e of [...incoming].sort((a, b) => a.time - b.time)) {
+    if (knownIds.has(e.id)) continue;
+    const t = normType(e.type);
+    let best = null;
+    let bestDiff = Infinity;
+    for (const x of state.entries) {
+      if (x.type !== t || used.has(x.id)) continue;
+      const diff = Math.abs(x.time - e.time);
+      if (diff <= DUP_WINDOW && diff < bestDiff) { best = x; bestDiff = diff; }
+    }
+    if (best) { used.add(best.id); out.push({ incoming: e, existing: best, diff: bestDiff }); }
+  }
+  return out;
+}
+function renderDuplicates(dups) {
+  $('#dupBox').hidden = !dups.length;
+  $('#dupTitle').textContent = dups.length === 1 ? '1 möglicher Doppelter' : `${dups.length} mögliche Doppelte`;
+  $('#dupList').innerHTML = dups.map((d, i) => {
+    const a = new Date(d.incoming.time);
+    const b = new Date(d.existing.time);
+    const min = Math.round(d.diff / 60000);
+    const extra = [d.incoming.photo && !d.existing.photo ? 'Foto wird ergänzt' : '', d.incoming.note ? `Notiz: „${d.incoming.note}“` : ''].filter(Boolean).join(' · ');
+    return `<label class="dup-item"><input type="checkbox" checked data-dup="${i}">
+      <span><b>${esc(fmtDayShort(a))} · ${esc(KIND[normType(d.incoming.type)].long)}</b>
+      Backup ${fmtTime(a)} ↔ bei dir ${fmtTime(b)} (${min === 0 ? 'gleiche Minute' : `${min} Min. auseinander`})
+      ${extra ? `<small>${esc(extra)}</small>` : ''}</span></label>`;
+  }).join('');
+}
+function mergeNote(a, b) {
+  a = (a || '').trim();
+  b = (b || '').trim();
+  if (!b || a.includes(b)) return a;
+  if (!a) return b;
+  return `${a} · ${b}`.slice(0, 500);
+}
+async function mergeInto(existing, incoming) {
+  const note = mergeNote(existing.note, incoming.note);
+  const addPhoto = !existing.photo && typeof incoming.photo === 'string' && incoming.photo.startsWith('data:');
+  if (note === (existing.note || '') && !addPhoto) return;
+  const blob = addPhoto ? await dataUrlToBlob(incoming.photo) : null;
+  if (mode === 'local') {
+    const rec = await localDb.get(existing.id);
+    if (!rec) return;
+    await localDb.put({ ...rec, note, photo: rec.photo || blob });
+  } else {
+    const upd = { note };
+    if (blob) {
+      const path = `${existing.id}/${incoming.created || incoming.time}.jpg`;
+      const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: true });
+      if (error) throw error;
+      upd.photo_path = path;
+    }
+    const { error } = await sb.from(TABLE).update(upd).eq('id', existing.id);
+    if (error) throw error;
+  }
+}
+
 $('#backupFile').addEventListener('change', async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
@@ -1170,12 +1329,17 @@ $('#backupFile').addEventListener('change', async (ev) => {
     const known = new Set(state.entries.map((e) => e.id));
     const isNew = entries.filter((e) => !known.has(e.id)).length;
     const attempts = entries.filter((e) => e.type === 'versuch').length;
-    backupPending = { entries, meds };
+    const dups = findDuplicates(entries, known);
+    const photo = typeof data.ylviPhoto === 'string' && data.ylviPhoto.startsWith('data:image/') ? data.ylviPhoto : null;
+    backupPending = { entries, meds, dups, photo };
+    renderDuplicates(dups);
     const when = data.exported ? fmtDate(new Date(data.exported)) : 'unbekanntem Datum';
     $('#backupInfo').textContent =
       `Backup vom ${when}: ${entries.length - attempts} Pipi, ${attempts} ${attempts === 1 ? 'Versuch' : 'Versuche'}, ` +
-      `${entries.filter((e) => e.photo).length} Fotos, ${meds.length} Medikations-Einträge. ` +
-      `${isNew} davon sind neu. Vorhandene Einträge bleiben erhalten, gleiche werden aktualisiert.`;
+      `${(() => { const n = entries.filter((e) => e.photo).length; return n === 1 ? '1 Foto' : `${n} Fotos`; })()}, ${meds.length} Medikations-Einträge. ` +
+      `${isNew} davon sind neu${dups.length ? `, darunter ${dups.length} mögliche ${dups.length === 1 ? 'Doppelter' : 'Doppelte'} (siehe unten)` : ''}. ` +
+      'Vorhandene Einträge bleiben erhalten, gleiche werden aktualisiert.' +
+      (photo && !ylviPhoto ? ' Das Foto von Ylvi wird übernommen.' : '');
     $('#backupImport').disabled = false;
     $('#backupPreview').hidden = false;
   } catch (err) {
@@ -1188,9 +1352,14 @@ $('#backupImport').addEventListener('click', async () => {
   if (!backupPending) return;
   const btn = $('#backupImport');
   btn.disabled = true;
-  const { entries, meds } = backupPending;
+  const { entries, meds, dups, photo } = backupPending;
+  const merge = new Map();
+  document.querySelectorAll('#dupList input[data-dup]').forEach((cb) => {
+    if (cb.checked) { const d = dups[Number(cb.dataset.dup)]; merge.set(String(d.incoming.id), d.existing); }
+  });
   const info = $('#backupInfo');
   let done = 0;
+  let merged = 0;
   try {
     for (const m of meds) {
       const rec = { id: String(m.id), name: String(m.name).slice(0, 60), dose: Number(m.dose), start: m.start || null, note: (m.note || '').slice(0, 300), author: m.author || '', created: m.created || 0 };
@@ -1201,7 +1370,12 @@ $('#backupImport').addEventListener('click', async () => {
       }
     }
     for (const e of entries) {
-      info.textContent = `Lese ein… ${done} von ${entries.length}`;
+      info.textContent = `Lese ein… ${done + merged} von ${entries.length}`;
+      if (merge.has(String(e.id))) {
+        await mergeInto(merge.get(String(e.id)), e);
+        merged++;
+        continue;
+      }
       const type = normType(e.type);
       const note = (e.note || '').slice(0, 500);
       const blob = typeof e.photo === 'string' && e.photo.startsWith('data:') ? await dataUrlToBlob(e.photo) : null;
@@ -1232,14 +1406,15 @@ $('#backupImport').addEventListener('click', async () => {
       if (mode === 'local') await localMeds.remove(sd.id);
       else await sb.from(MED_TABLE).delete().eq('id', sd.id);
     }
+    if (photo && !ylviPhoto) await setYlviPhoto(photo);
   } catch (err) {
-    info.textContent = `${done} von ${entries.length} eingelesen. Fehler: ${friendlyError(err)} Du kannst es erneut versuchen, nichts wird doppelt angelegt.`;
+    info.textContent = `${done + merged} von ${entries.length} eingelesen. Fehler: ${friendlyError(err)} Du kannst es erneut versuchen, nichts wird doppelt angelegt.`;
     btn.disabled = false;
     await loadEntries();
     return;
   }
   backupDlg.close();
-  toast(`Backup eingelesen: ${done} Einträge ✓`);
+  toast(`Backup eingelesen: ${done} Einträge${merged ? `, ${merged} zusammengeführt` : ''} ✓`);
   await loadEntries();
 });
 backupDlg.addEventListener('close', resetBackupDialog);
@@ -1293,6 +1468,7 @@ menu.addEventListener('click', async (e) => {
   if (!action) return;
   menu.hidden = true;
   if (action === 'backup') openBackup();
+  if (action === 'ylvi') openYlviDialog();
   if (action === 'name') askName();
   if (action === 'password') {
     $('#passwordInput').value = '';
@@ -1314,6 +1490,7 @@ function onSignedIn(user) {
     loadEntries();
     subscribeLive();
     checkLocalData();
+    syncYlviPhotoFromCloud().catch(() => {});
     if (!(user.user_metadata && user.user_metadata.name)) askName();
   }
 }

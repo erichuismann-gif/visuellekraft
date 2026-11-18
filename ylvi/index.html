@@ -4,21 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Ylvis Klo-Plan</title>
-  <meta name="theme-color" content="#faf6f1" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1c1815" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbefe7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17121f" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Ylvi Klo">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <meta name="ylvi-version" content="10">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <meta name="ylvi-version" content="11">
+  <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
+  <div class="bg" aria-hidden="true"></div>
+  <div class="bg-photo" id="bgPhoto" aria-hidden="true"></div>
+
   <header class="top">
     <div class="brand">
-      <img src="icon.svg" alt="" width="40" height="40">
+      <button id="avatarBtn" class="avatar" type="button" aria-label="Foto von Ylvi ändern">
+        <img id="avatarImg" src="icon.svg" alt="Ylvi">
+      </button>
       <div>
         <h1>Ylvis Klo-Plan</h1>
         <p id="status" class="status">Wird geladen…</p>
@@ -29,6 +34,7 @@
     <div id="menu" class="menu" hidden>
       <p id="menuUser" class="menu-user cloud-only"></p>
       <button data-action="backup">💾 Backup speichern / laden</button>
+      <button data-action="ylvi">🐱 Foto von Ylvi</button>
       <button data-action="name" class="cloud-only">Namen ändern</button>
       <button data-action="password" class="cloud-only">Passwort ändern</button>
       <button data-action="logout" class="cloud-only">Abmelden</button>
@@ -211,6 +217,29 @@
     </form>
   </dialog>
 
+  <!-- Foto von Ylvi -->
+  <dialog id="ylviDialog">
+    <div class="stack pad ylvi-dialog">
+      <h2>Foto von Ylvi</h2>
+      <img id="ylviPreview" class="ylvi-preview" src="icon.svg" alt="Ylvi">
+      <div class="photo-actions center">
+        <label class="btn primary">📷 Foto aufnehmen
+          <input id="ylviCamera" type="file" accept="image/*" capture="environment" hidden>
+        </label>
+        <label class="btn">🖼️ Aus Galerie
+          <input id="ylviGallery" type="file" accept="image/*" hidden>
+        </label>
+      </div>
+      <p class="muted small">Das Foto erscheint oben in der App, verschwommen im Hintergrund und im PDF für die Tierärztin. Es wird quadratisch aus der Bildmitte zugeschnitten.</p>
+      <p id="ylviError" class="form-error" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="ylviRemove" class="btn ghost danger" hidden>Foto entfernen</button>
+        <span class="spacer"></span>
+        <button type="button" id="ylviClose" class="btn ghost">Fertig</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Backup -->
   <dialog id="backupDialog">
     <div class="stack pad">
@@ -226,6 +255,11 @@
       </label>
       <div id="backupPreview" class="notice migrate" hidden>
         <p id="backupInfo"></p>
+        <div id="dupBox" class="dup-box" hidden>
+          <p class="small"><b id="dupTitle">Mögliche Doppelte</b><br>
+            <span class="muted">Gleiche Art, höchstens 10 Minuten auseinander – vermutlich habt ihr denselben Klo-Besuch beide eingetragen. Angehakte Paare werden zusammengeführt: Dein Eintrag bleibt, Foto und Notiz aus dem Backup werden ergänzt, falls sie fehlen.</span></p>
+          <div id="dupList" class="dup-list"></div>
+        </div>
         <button type="button" id="backupImport" class="btn primary">Jetzt einlesen</button>
       </div>
       <p id="backupError" class="form-error" hidden></p>
@@ -277,9 +311,9 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
-  <script src="config.js?v=10"></script>
-  <script src="meds.js?v=10"></script>
-  <script src="pdf-export.js?v=10"></script>
-  <script src="app.js?v=10"></script>
+  <script src="config.js?v=11"></script>
+  <script src="meds.js?v=11"></script>
+  <script src="pdf-export.js?v=11"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

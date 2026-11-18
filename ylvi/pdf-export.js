@@ -98,6 +98,29 @@ const YlviPdf = (() => {
     }
   }
 
+  /** Rundes Foto als JPEG mit weißem Rand (JPEG kennt keine Transparenz) */
+  async function roundPhoto(dataUrl, px = 360) {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Foto nicht lesbar'));
+      i.src = dataUrl;
+    });
+    const c = document.createElement('canvas');
+    c.width = c.height = px;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, px, px);
+    g.save();
+    g.beginPath();
+    g.arc(px / 2, px / 2, px / 2 - 2, 0, Math.PI * 2);
+    g.clip();
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, px, px);
+    g.restore();
+    return c.toDataURL('image/jpeg', 0.85);
+  }
+
   /**
    * @param {Array} entries  Pipi-Einträge [{id, time(ms), note, photo, author}]
    * @param {Object} opts    {from: Date, to: Date, meds: [], includeNotes, includePhotos,
@@ -200,10 +223,22 @@ const YlviPdf = (() => {
     }
 
     /* ---------- Kopf ---------- */
+    let titleX = M;
+    if (opts.ylviPhoto) {
+      try {
+        const round = await roundPhoto(opts.ylviPhoto);
+        const D = 17;
+        doc.addImage(round, 'JPEG', M, y - 1, D, D, undefined, 'FAST');
+        stroke(C.accent);
+        doc.setLineWidth(0.6);
+        doc.circle(M + D / 2, y - 1 + D / 2, D / 2, 'S');
+        titleX = M + D + 4;
+      } catch { /* ohne Foto weiter */ }
+    }
     font('bold', 20);
-    doc.text('Ylvis Klo-Plan', M, y + 7);
+    doc.text('Ylvis Klo-Plan', titleX, y + 7);
     font('normal', 10.5, C.muted);
-    doc.text('Protokoll Urinabsatz (Pipi) von Katze Ylvi', M, y + 13);
+    doc.text('Protokoll Urinabsatz (Pipi) von Katze Ylvi', titleX, y + 13);
     font('bold', 10.5);
     doc.text(`Zeitraum: ${rangeText}`, A4.w - M, y + 7, { align: 'right' });
     font('normal', 9, C.muted);
