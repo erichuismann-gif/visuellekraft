@@ -21,11 +21,11 @@ const YlviPdf = (() => {
   const FOOTER_Y = A4.h - 8;
 
   const C = {
-    text: [42, 35, 31],
-    muted: [119, 106, 96],
-    line: [222, 212, 201],
-    bar: [244, 239, 233],
-    accent: [184, 97, 47],
+    text: [36, 31, 53],
+    muted: [100, 95, 124],
+    line: [218, 220, 236],
+    bar: [239, 242, 251],
+    accent: [214, 63, 140],
     pipi: [217, 169, 31],
     attempt: [180, 55, 42],
     white: [255, 255, 255],
@@ -294,7 +294,7 @@ const YlviPdf = (() => {
       const within = YlviMeds.sorted(meds).filter((m) => m.start && m.start > YlviMeds.dayKey(weekStart0) && YlviMeds.keyToDate(m.start).getTime() < rangeTo);
       const rel = [...atStart, ...within];
       if (rel.length) {
-        sectionTitle('Medikation', within.length ? 'Dosisänderungen sind in der Zeitleiste orange markiert' : '');
+        sectionTitle('Medikation', within.length ? 'Dosisänderungen sind in der Zeitleiste pink markiert' : '');
         const multi = YlviMeds.names(meds).length > 1;
         const codes = YlviMeds.codes(meds);
         table(
@@ -416,7 +416,7 @@ const YlviPdf = (() => {
         doc.roundedRect(BAR_X, by, BAR_W, BAR_H, 1, 1, 'F');
         doc.setLineWidth(0.15);
         for (let hh = 3; hh < 24; hh += 3) {
-          stroke(hh % 6 === 0 ? C.line : [234, 226, 217]);
+          stroke(hh % 6 === 0 ? C.line : [228, 231, 244]);
           const x = BAR_X + (BAR_W * hh) / 24;
           doc.line(x, by, x, by + BAR_H);
         }
@@ -448,7 +448,7 @@ const YlviPdf = (() => {
           const lines = doc.splitTextToSize(txt, BAR_W);
           doc.text(lines[0] + (lines.length > 1 ? ' …' : ''), BAR_X, by + BAR_H + 3.2);
         }
-        stroke([238, 231, 223]);
+        stroke([232, 234, 245]);
         doc.setLineWidth(0.15);
         doc.line(M, y + ROW_H - 0.3, A4.w - M, y + ROW_H - 0.3);
         y += ROW_H;

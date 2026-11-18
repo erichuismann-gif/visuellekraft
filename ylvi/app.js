@@ -10,7 +10,7 @@
 /* ---------- Versionsprüfung ----------
    Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
    mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
-const APP_VERSION = '11';
+const APP_VERSION = '12';
 (() => {
   const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
   if (pageVersion === APP_VERSION) {

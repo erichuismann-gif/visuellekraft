@@ -1,14 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#f4e9dc"/>
-  <g fill="#3b2f2a">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd1e8"/>
+      <stop offset="1" stop-color="#cfe8ff"/>
+    </linearGradient>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e2509a"/>
+      <stop offset="1" stop-color="#3a8ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <g fill="#2f2945">
     <path d="M136 210 L150 92 L228 168 Z"/>
     <path d="M376 210 L362 92 L284 168 Z"/>
     <ellipse cx="256" cy="268" rx="142" ry="124"/>
   </g>
-  <g fill="#f4e9dc">
+  <g fill="#ffe3f1">
     <ellipse cx="204" cy="252" rx="18" ry="24"/>
     <ellipse cx="308" cy="252" rx="18" ry="24"/>
     <path d="M244 296 h24 l-12 14 z"/>
   </g>
-  <rect x="96" y="388" width="320" height="44" rx="22" fill="#d98b5f"/>
+  <rect x="96" y="388" width="320" height="44" rx="22" fill="url(#a)"/>
 </svg>

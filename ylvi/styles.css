@@ -6,29 +6,30 @@
 
 :root {
   /* Hintergrund-Verlauf */
-  --bg-base: #fbefe7;
-  --blob-1: #ffc9a8;   /* Pfirsich */
-  --blob-2: #f7b8d2;   /* Rosé */
-  --blob-3: #c9c6f5;   /* Lavendel */
-  --blob-4: #b9e6dc;   /* Mint */
+  --bg-base: #f6f4fb;
+  --blob-1: #ffc3df;   /* Pink */
+  --blob-2: #bfe2ff;   /* Hellblau */
+  --blob-3: #f9cdea;   /* Rosa */
+  --blob-4: #c7ecff;   /* Himmelblau */
 
   /* Glas */
   --glass: rgba(255, 255, 255, .52);
   --glass-strong: rgba(255, 255, 255, .78);
   --glass-soft: rgba(255, 255, 255, .34);
   --glass-border: rgba(255, 255, 255, .75);
-  --glass-shadow: 0 10px 34px rgba(90, 50, 80, .13), inset 0 1px 0 rgba(255, 255, 255, .7);
+  --glass-shadow: 0 10px 34px rgba(70, 60, 120, .13), inset 0 1px 0 rgba(255, 255, 255, .7);
   --blur: blur(22px) saturate(170%);
 
   /* Text & Linien */
-  --text: #2b2130;
-  --muted: #6e6276;
-  --line: rgba(70, 40, 80, .12);
+  --text: #241f35;
+  --muted: #645f7c;
+  --line: rgba(50, 50, 110, .12);
 
   /* Akzente */
-  --accent: #e2694f;
-  --accent-2: #e2557f;
-  --accent-grad: linear-gradient(135deg, #f39260 0%, #e2557f 100%);
+  --accent: #d63f8c;
+  --accent-2: #3a8ed8;
+  --accent-grad: linear-gradient(135deg, #e2509a 0%, #3a8ed8 100%);
+  --accent-glow: rgba(214, 63, 140, .32);
   --accent-text: #ffffff;
   --pipi: #e7b21d;
   --danger: #cf3f4a;
@@ -41,25 +42,26 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-base: #17121f;
-    --blob-1: #5a2d3c;
-    --blob-2: #452657;
-    --blob-3: #213a5c;
-    --blob-4: #1d4a48;
+    --bg-base: #13132a;
+    --blob-1: #5b2350;
+    --blob-2: #1d3d66;
+    --blob-3: #47204f;
+    --blob-4: #173f5f;
 
-    --glass: rgba(38, 30, 50, .52);
-    --glass-strong: rgba(44, 35, 58, .82);
+    --glass: rgba(32, 30, 58, .52);
+    --glass-strong: rgba(38, 36, 68, .84);
     --glass-soft: rgba(255, 255, 255, .06);
     --glass-border: rgba(255, 255, 255, .12);
     --glass-shadow: 0 10px 34px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .08);
 
-    --text: #f4eff8;
-    --muted: #b5a9c2;
+    --text: #f2f0fb;
+    --muted: #aeaacb;
     --line: rgba(255, 255, 255, .1);
 
-    --accent: #f58a6c;
-    --accent-2: #f0709a;
-    --accent-grad: linear-gradient(135deg, #f7966a 0%, #e9608d 100%);
+    --accent: #f27bb6;
+    --accent-2: #64aef0;
+    --accent-grad: linear-gradient(135deg, #e2509a 0%, #3a8ed8 100%);
+    --accent-glow: rgba(242, 123, 182, .28);
     --accent-text: #ffffff;
     --pipi: #f2c43c;
     --danger: #ff6f73;
@@ -105,8 +107,9 @@ h1, h2, h3, .stat b, .entry-time { letter-spacing: -.01em; }
   transition: opacity .6s ease;
   pointer-events: none;
 }
-.has-photo .bg-photo { opacity: .5; }
-@media (prefers-color-scheme: dark) { .has-photo .bg-photo { opacity: .38; } }
+/* Foto nur dezent, damit Pink/Hellblau die Grundfarbe bleiben */
+.has-photo .bg-photo { opacity: .3; }
+@media (prefers-color-scheme: dark) { .has-photo .bg-photo { opacity: .22; } }
 
 /* Gemeinsame Glasfläche */
 .stat, .entry, .wday, .med-current, .cmp, .med-item, .notice, .tabs, .menu,
@@ -142,7 +145,7 @@ h1 { font-size: 1.45rem; font-weight: 800; margin: 0; }
   border: 0;
   border-radius: 50%;
   background: var(--accent-grad);
-  box-shadow: 0 6px 20px rgba(226, 85, 127, .35);
+  box-shadow: 0 6px 20px var(--accent-glow);
   cursor: pointer;
 }
 .avatar img {
@@ -212,7 +215,7 @@ h1 { font-size: 1.45rem; font-weight: 800; margin: 0; }
 .tabs button[aria-selected="true"] {
   background: var(--accent-grad);
   color: var(--accent-text);
-  box-shadow: 0 4px 14px rgba(226, 85, 127, .3);
+  box-shadow: 0 4px 14px var(--accent-glow);
 }
 
 main { max-width: 720px; margin: 0 auto; padding: 14px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); }
@@ -432,7 +435,7 @@ main { max-width: 720px; margin: 0 auto; padding: 14px max(16px, env(safe-area-i
   padding: 15px 24px;
   font-size: 1.05rem;
   font-weight: 800;
-  box-shadow: 0 10px 28px rgba(226, 85, 127, .42), inset 0 1px 0 rgba(255, 255, 255, .35);
+  box-shadow: 0 10px 28px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, .35);
   cursor: pointer;
   z-index: 15;
 }
@@ -453,7 +456,7 @@ main { max-width: 720px; margin: 0 auto; padding: 14px max(16px, env(safe-area-i
   background: var(--accent-grad);
   color: var(--accent-text);
   border-color: rgba(255, 255, 255, .3);
-  box-shadow: 0 6px 18px rgba(226, 85, 127, .3);
+  box-shadow: 0 6px 18px var(--accent-glow);
 }
 .btn.ghost { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .btn.danger { color: var(--danger); }
@@ -471,7 +474,7 @@ dialog {
   color: var(--text);
 }
 dialog::backdrop {
-  background: rgba(30, 15, 35, .35);
+  background: rgba(20, 18, 45, .35);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
@@ -502,7 +505,7 @@ dialog::backdrop {
   border-color: transparent;
   background: var(--accent-grad);
   color: var(--accent-text);
-  box-shadow: 0 6px 16px rgba(226, 85, 127, .3);
+  box-shadow: 0 6px 16px var(--accent-glow);
 }
 .types input[value="versuch"]:checked + span { background: linear-gradient(135deg, #e66a6a, #c93d55); }
 .types input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -564,7 +567,7 @@ textarea { resize: vertical; }
   border-radius: 50%;
   object-fit: cover;
   border: 4px solid var(--glass-strong);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 50%, transparent), 0 14px 34px rgba(226, 85, 127, .28);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 50%, transparent), 0 14px 34px var(--accent-glow);
   background: var(--glass-soft);
 }
 
@@ -614,7 +617,7 @@ textarea { resize: vertical; }
 /* Ohne Weichzeichner-Unterstützung: etwas deckender */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root { --glass: rgba(255, 255, 255, .85); --glass-strong: rgba(255, 255, 255, .95); }
-  @media (prefers-color-scheme: dark) { :root { --glass: rgba(38, 30, 50, .9); --glass-strong: rgba(44, 35, 58, .96); } }
+  @media (prefers-color-scheme: dark) { :root { --glass: rgba(32, 30, 58, .9); --glass-strong: rgba(38, 36, 68, .96); } }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
