@@ -1,6 +1,6 @@
 // Cache für die App-Dateien, damit sie schnell startet.
 // Nur eigene Dateien werden gecacht – Datenbank-Anfragen gehen immer ins Netz.
-const CACHE = 'ylvi-klo-v6';
+const CACHE = 'ylvi-klo-v7';
 const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './manifest.webmanifest', './icon.svg', './meds.js', './pdf-export.js', './vendor/jspdf.umd.min.js'];
 
 self.addEventListener('install', (e) => {

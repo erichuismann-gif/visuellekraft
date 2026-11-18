@@ -39,13 +39,39 @@ const YlviMeds = (() => {
     return [...byName.values()].map((c) => ({ name: c.name, dose: c.dose, change: c }));
   }
 
-  const names = (changes) => [...new Set(changes.map((c) => c.name))];
+  const names = (changes) => [...new Set(sorted(changes).map((c) => c.name))];
+  /** Nur Medikamente, die an dem Tag gegeben werden (abgesetzte = 0 mg fallen weg) */
+  const active = (doses) => doses.filter((d) => d.dose > 0);
 
-  /** Kurzer Text: bei nur einem Medikament nur die Dosis, sonst "Name Dosis, …" */
+  /** Text: bei nur einem Medikament nur die Dosis, sonst "Name Dosis · …" */
   function label(changes, doses, { long = false } = {}) {
-    if (!doses.length) return '';
-    if (!long && names(changes).length === 1) return fmtDose(doses[0].dose);
-    return doses.map((d) => `${d.name} ${fmtDose(d.dose)}`).join(', ');
+    const act = active(doses);
+    if (!act.length) return '';
+    if (!long && names(changes).length === 1) return fmtDose(act[0].dose);
+    return act.map((d) => `${d.name} ${fmtDose(d.dose)}`).join(' · ');
+  }
+
+  /** Eindeutige Kürzel je Medikament, z. B. Fluoxetin → "Flu", Alfuzosin → "Alf" */
+  function codes(changes) {
+    const map = new Map();
+    const used = new Set();
+    for (const n of names(changes)) {
+      let len = 3;
+      let code = n.slice(0, len);
+      while (used.has(code.toLowerCase()) && len < n.length) code = n.slice(0, ++len);
+      used.add(code.toLowerCase());
+      map.set(n, code);
+    }
+    return map;
+  }
+
+  /** Kompakt für enge Stellen: ein Medikament → "2,5 mg", mehrere → "Flu 2,5 · Alf 2,5" */
+  function compact(changes, doses) {
+    const act = active(doses);
+    if (!act.length) return '';
+    if (names(changes).length === 1) return fmtDose(act[0].dose);
+    const c = codes(changes);
+    return act.map((d) => `${c.get(d.name)} ${Number(d.dose).toLocaleString('de-DE', { maximumFractionDigits: 3 })}`).join(' · ');
   }
 
   const changesOn = (changes, day) => {
@@ -97,5 +123,5 @@ const YlviMeds = (() => {
       .filter((p) => p.days > 0);
   }
 
-  return { fmtDose, sorted, doseOn, label, changesOn, periods, compare, names, dayKey, keyToDate };
+  return { fmtDose, sorted, doseOn, active, label, compact, codes, changesOn, periods, compare, names, dayKey, keyToDate };
 })();

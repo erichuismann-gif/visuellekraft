@@ -10,7 +10,7 @@
 /* ---------- Versionsprüfung ----------
    Nach einem Update kann der Browser kurzzeitig alte und neue Dateien
    mischen. Passt die Seite nicht zu diesem Skript, einmal frisch laden. */
-const APP_VERSION = '8';
+const APP_VERSION = '9';
 (() => {
   const pageVersion = document.querySelector('meta[name="ylvi-version"]')?.content;
   if (pageVersion === APP_VERSION) {
@@ -48,8 +48,10 @@ const SIGNED_URL_SECONDS = 60 * 60 * 6;
 const MED_SEED = [
   { id: 'seed-fluoxetin-5', name: 'Fluoxetin', dose: 5, start: null, note: 'Wegen Rolling Skin Syndrome' },
   { id: 'seed-fluoxetin-2-5', name: 'Fluoxetin', dose: 2.5, start: '2026-11-17', note: 'Herunterfahren auf Empfehlung der Tierärztin (Verdacht: Blasenprobleme durch Fluoxetin)' },
+  { id: 'seed-alfuzosin-2-5', name: 'Alfuzosin', dose: 2.5, start: '2026-11-12', note: 'Zur verbesserten Entleerung der Blase' },
 ];
-const MED_SEED_FLAG = 'ylvi-med-seeded';
+const MED_SEED_FLAG = 'ylvi-med-seeded';          // alt: '1' = Fluoxetin-Einträge erledigt
+const MED_SEED_IDS = 'ylvi-med-seeded-ids';       // neu: Liste der schon angelegten Vorgaben
 
 /* ---------- Hilfsfunktionen ---------- */
 const $ = (sel) => document.querySelector(sel);
@@ -312,23 +314,40 @@ async function loadLocalData() {
   state.meds = meds.map((m) => ({ ...m, created: m.created || 0 }));
 }
 
+/* Vorgaben einmalig je Gerät eintragen. Jede Vorgabe nur, wenn es das
+   Medikament noch gar nicht gibt (z. B. schon von Hand angelegt) – und
+   nie wieder, nachdem sie einmal angelegt wurde (auch wenn sie später
+   gelöscht wird). */
 async function seedMedsOnce() {
-  let flag = null;
-  try { flag = localStorage.getItem(MED_SEED_FLAG); } catch { /* egal */ }
-  if (flag) return;
-  if (!state.meds.length) {
-    const now = Date.now();
-    const recs = MED_SEED.map((s, i) => ({ ...s, created: now + i }));
+  let done = [];
+  try {
+    done = JSON.parse(localStorage.getItem(MED_SEED_IDS) || '[]');
+    if (!done.length && localStorage.getItem(MED_SEED_FLAG)) done = ['seed-fluoxetin-5', 'seed-fluoxetin-2-5'];
+  } catch { done = []; }
+  const pending = MED_SEED.filter((sd) => !done.includes(sd.id));
+  if (!pending.length) return;
+
+  const have = new Set(state.meds.map((m) => m.id));
+  const haveNames = new Set(state.meds.map((m) => m.name.toLowerCase()));
+  // Medikamente, die schon vorher existierten, nicht noch einmal anlegen
+  const newNames = new Set(pending.map((sd) => sd.name.toLowerCase()).filter((n) => !haveNames.has(n)));
+  const now = Date.now();
+  const recs = pending
+    .filter((sd) => !have.has(sd.id) && newNames.has(sd.name.toLowerCase()))
+    .map((sd, i) => ({ ...sd, created: now + i }));
+  if (recs.length) {
     if (mode === 'local') {
       for (const r of recs) await localMeds.put(r);
-      state.meds = recs;
     } else {
       const { error } = await sb.from(MED_TABLE).upsert(recs.map(medToRow));
       if (error) return; // z. B. Tabelle fehlt – später erneut versuchen
-      state.meds = recs;
     }
+    state.meds = [...state.meds, ...recs];
   }
-  try { localStorage.setItem(MED_SEED_FLAG, '1'); } catch { /* egal */ }
+  try {
+    localStorage.setItem(MED_SEED_IDS, JSON.stringify([...done, ...pending.map((sd) => sd.id)]));
+    localStorage.setItem(MED_SEED_FLAG, '1');
+  } catch { /* egal */ }
 }
 
 function medToRow(m) {
@@ -417,13 +436,17 @@ function renderList() {
   const last7 = state.entries.filter((e) => isPipi(e) && e.time >= t0 - 6 * 86400000 && e.time < t0).length; // 6 volle Tage + heute
   const avg7 = (last7 + today) / 7;
   const doses = dosesOn(now);
-  const doseVal = doses.length ? YlviMeds.label(state.meds, doses) : '–';
-  const doseSub = doses.length === 1 ? `${doses[0].name}${doses[0].change.start ? ` seit ${fmtDayShort(YlviMeds.keyToDate(doses[0].change.start))}` : ''}` : 'Medikation';
+  const act = YlviMeds.active(doses);
+  const doseCard = act.length === 1
+    ? `<b>${esc(YlviMeds.fmtDose(act[0].dose))}</b><span>💊 ${esc(act[0].name)}${act[0].change.start ? ` seit ${esc(fmtDayShort(YlviMeds.keyToDate(act[0].change.start)))}` : ''}</span>`
+    : act.length
+      ? `<b class="dose-lines">${act.map((d) => `${esc(d.name)} ${esc(YlviMeds.fmtDose(d.dose))}`).join('<br>')}</b><span>💊 Medikation</span>`
+      : '<b>–</b><span>💊 Medikation</span>';
   $('#todaySummary').innerHTML = `
     <div class="stat"><b>${today}</b><span>💧 Pipi heute</span></div>
     <div class="stat attempt"><b>${todayTries}</b><span>✖ Versuche heute</span></div>
     <div class="stat"><b>${fmtNum(avg7)}</b><span>Ø Pipi pro Tag (7 Tage)</span></div>
-    <div class="stat"><b>${esc(doseVal)}</b><span>💊 ${esc(doseSub)}</span></div>`;
+    <div class="stat">${doseCard}</div>`;
 
   const list = $('#list');
   if (!state.entries.length && !state.meds.some((m) => m.start)) {
@@ -452,7 +475,7 @@ function renderList() {
   for (const k of keys) {
     const g = groups.get(k);
     const day = YlviMeds.keyToDate(k);
-    const dl = doseLabel(day);
+    const dl = YlviMeds.compact(state.meds, dosesOn(day));
     const gp = g.entries.filter(isPipi).length;
     const gt = g.entries.filter(isAttempt).length;
     html += `<div class="day-head"><span>${esc(dayTitle(day))}</span><span>💧 ${gp}${gt ? ` · ✖ ${gt}` : ''}${dl ? ` · 💊 ${esc(dl)}` : ''}</span></div>`;
@@ -491,8 +514,14 @@ function renderWeek() {
     const from = day.getTime();
     const to = addDays(day, 1).getTime();
     const items = state.entries.filter((e) => e.time >= from && e.time < to).sort((a, b) => a.time - b.time);
-    const dl = doseLabel(day);
-    const changed = YlviMeds.changesOn(state.meds, day).length > 0;
+    const dayChanges = YlviMeds.changesOn(state.meds, day);
+    const changedNames = new Set(dayChanges.map((c) => c.name));
+    const multi = YlviMeds.names(state.meds).length > 1;
+    const doseChips = YlviMeds.active(dosesOn(day)).map((d) => {
+      const ch = changedNames.has(d.name);
+      return `<span class="dose-chip${ch ? ' changed' : ''}" title="${ch ? 'Dosis geändert' : 'Dosis'}">💊 ${multi ? `${esc(d.name)} ` : ''}${esc(YlviMeds.fmtDose(d.dose))}</span>`;
+    }).concat(dayChanges.filter((c) => c.dose === 0).map((c) =>
+      `<span class="dose-chip changed" title="abgesetzt">💊 ${esc(c.name)} abgesetzt</span>`)).join('');
     const dots = items.map((e) => {
       const d = new Date(e.time);
       const pct = ((d.getHours() * 60 + d.getMinutes()) / 1440) * 100;
@@ -505,7 +534,7 @@ function renderWeek() {
     html += `
       <div class="wday${dayKey(day) === todayKey ? ' is-today' : ''}">
         <div class="wday-head">
-          <strong>${esc(fmtDayShort(day))}${dl ? `<span class="dose-chip${changed ? ' changed' : ''}" title="${changed ? 'Dosis geändert' : 'Dosis'}">💊 ${esc(dl)}</span>` : ''}</strong>
+          <strong>${esc(fmtDayShort(day))}${doseChips}</strong>
           <span class="wday-counts">${items.length ? `💧 ${items.filter(isPipi).length}${items.some(isAttempt) ? ` · ✖ ${items.filter(isAttempt).length}` : ''}` : '–'}</span>
         </div>
         <div class="timeline">${dots}</div>
@@ -519,9 +548,16 @@ function renderWeek() {
 function renderMeds() {
   const now = new Date();
   const doses = dosesOn(now);
-  $('#medCurrent').innerHTML = doses.length
-    ? doses.map((d) => `<b>${esc(d.name)} ${esc(YlviMeds.fmtDose(d.dose))}</b><span>${d.change.start ? `seit ${esc(fmtDayLong(YlviMeds.keyToDate(d.change.start)))}` : 'seit Beginn der Aufzeichnung'}</span>`).join('<br>')
-    : '<b>Keine Medikation eingetragen</b><span>Tippe auf „Dosis ändern“, um eine einzutragen.</span>';
+  const act = YlviMeds.active(doses);
+  const stopped = doses.filter((d) => d.dose === 0);
+  $('#medCurrent').innerHTML = act.length
+    ? act.map((d) => `<div class="med-cur-row">
+        <div><b>${esc(d.name)} ${esc(YlviMeds.fmtDose(d.dose))}</b>
+          <span>${d.change.start ? `seit ${esc(fmtDayLong(YlviMeds.keyToDate(d.change.start)))}` : 'seit Beginn der Aufzeichnung'}${d.change.note ? ` · ${esc(d.change.note)}` : ''}</span></div>
+        <button type="button" class="btn small-btn" data-med-change="${esc(d.name)}">Dosis ändern</button>
+      </div>`).join('')
+      + (stopped.length ? `<p class="muted small stopped">Abgesetzt: ${stopped.map((d) => esc(d.name)).join(', ')}</p>` : '')
+    : '<div class="med-cur-row"><div><b>Keine Medikation eingetragen</b><span>Tippe auf „Medikament hinzufügen“.</span></div></div>';
 
   // Vergleich je Dosis, ab dem ersten Eintrag bis heute
   const cmpEl = $('#medCompare');
@@ -533,12 +569,12 @@ function renderMeds() {
     cmpEl.innerHTML = `<table class="cmp">
       <thead><tr><th>Dosis</th><th class="num">Tage</th><th class="num">Ø Pipi<br>pro Tag</th><th class="num">Ø Versuche<br>pro Tag</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
-        <td><b>${esc(YlviMeds.label(state.meds, r.doses) || 'ohne')}</b><small>${esc(fmtDayShort(r.from))} – ${esc(fmtDayShort(addDays(r.to, -1)))}</small></td>
+        <td><b>${YlviMeds.active(r.doses).map((d) => `${esc(YlviMeds.names(state.meds).length > 1 ? d.name + ' ' : '')}${esc(YlviMeds.fmtDose(d.dose))}`).join('<br>') || 'ohne'}</b><small>${esc(fmtDayShort(r.from))} – ${esc(fmtDayShort(addDays(r.to, -1)))}</small></td>
         <td class="num">${r.days}</td>
         <td class="num big">${fmtNum(r.avg)}<small>${r.count} gesamt</small></td>
         <td class="num">${fmtNum(r.avgAttempts)}<small>${r.attempts} gesamt</small></td>
       </tr>`).join('')}</tbody></table>
-      <p class="muted small" style="margin-top:6px">Der heutige Tag zählt schon mit, auch wenn er noch nicht vorbei ist.${rows.some((r) => r.longestGap) ? ` Längste Pause: ${rows.map((r) => `${esc(YlviMeds.label(state.meds, r.doses))} ${r.longestGap ? fmtDuration(r.longestGap) : '–'}`).join(' · ')}` : ''}</p>`;
+      <p class="muted small" style="margin-top:6px">Der heutige Tag zählt schon mit, auch wenn er noch nicht vorbei ist.${rows.some((r) => r.longestGap) ? ` Längste Pause: ${rows.map((r) => `${esc(YlviMeds.compact(state.meds, r.doses) || 'ohne')}: ${r.longestGap ? fmtDuration(r.longestGap) : '–'}`).join(' · ')}` : ''}</p>`;
   }
 
   // Verlauf (neueste zuerst)
@@ -731,12 +767,12 @@ $('#deleteBtn').addEventListener('click', async () => {
 const medDlg = $('#medDialog');
 let editingMed = null;
 
-function openMedForm(med = null) {
+function openMedForm(med = null, { name = null } = {}) {
   editingMed = med;
   showError($('#medError'), '');
-  const latest = YlviMeds.sorted(state.meds).pop();
-  $('#medFormTitle').textContent = med ? 'Medikation bearbeiten' : 'Dosis ändern';
-  $('#medName').value = med ? med.name : (latest ? latest.name : 'Fluoxetin');
+  $('#medFormTitle').textContent = med ? 'Medikation bearbeiten' : name ? `Dosis ändern: ${name}` : 'Medikament hinzufügen';
+  $('#medName').value = med ? med.name : (name || '');
+  $('#medName').readOnly = !med && !!name;
   $('#medDose').value = med ? String(med.dose).replace('.', ',') : '';
   $('#medFromBeginning').checked = !!(med && med.start === null);
   $('#medStart').value = med && med.start ? med.start : toDateInput(new Date());
@@ -746,12 +782,16 @@ function openMedForm(med = null) {
   $('#medSave').disabled = false;
   $('#medNames').innerHTML = YlviMeds.names(state.meds).map((n) => `<option value="${esc(n)}"></option>`).join('');
   medDlg.showModal();
-  if (!med) $('#medDose').focus();
+  if (!med) (name ? $('#medDose') : $('#medName')).focus();
 }
 
 $('#medFromBeginning').addEventListener('change', () => { $('#medStart').disabled = $('#medFromBeginning').checked; });
 $('#medCancel').addEventListener('click', () => medDlg.close());
 $('#addMedBtn').addEventListener('click', () => openMedForm());
+$('#medCurrent').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-med-change]');
+  if (b) openMedForm(null, { name: b.dataset.medChange });
+});
 
 $('#medForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();

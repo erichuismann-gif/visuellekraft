@@ -12,8 +12,8 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <meta name="ylvi-version" content="8">
-  <link rel="stylesheet" href="styles.css?v=8">
+  <meta name="ylvi-version" content="9">
+  <link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
   <header class="top">
@@ -88,7 +88,7 @@
 
       <section id="view-meds" class="view" hidden>
         <div id="medCurrent" class="med-current"></div>
-        <button id="addMedBtn" type="button" class="btn primary med-add">💊 Dosis ändern</button>
+        <button id="addMedBtn" type="button" class="btn primary med-add">＋ Medikament hinzufügen</button>
         <h3 class="section-title">Pipi pro Tag je Dosis</h3>
         <div id="medCompare"></div>
         <h3 class="section-title">Verlauf der Medikation</h3>
@@ -184,7 +184,7 @@
     <form id="medForm" class="stack pad">
       <h2 id="medFormTitle">Dosis ändern</h2>
       <label class="field"><span>Medikament</span>
-        <input id="medName" type="text" list="medNames" maxlength="60" required autocomplete="off">
+        <input id="medName" type="text" list="medNames" maxlength="60" required autocomplete="off" placeholder="z. B. Alfuzosin">
         <datalist id="medNames"></datalist>
       </label>
       <label class="field"><span>Dosis in mg <small>(0 = abgesetzt)</small></span>
@@ -195,7 +195,7 @@
       </label>
       <label class="check"><input id="medFromBeginning" type="checkbox"> Seit Beginn der Aufzeichnung (Datum unbekannt)</label>
       <label class="field"><span>Notiz <small>(optional)</small></span>
-        <textarea id="medNote" rows="2" maxlength="300" placeholder="z. B. auf Empfehlung der Tierärztin"></textarea>
+        <textarea id="medNote" rows="2" maxlength="300" placeholder="z. B. wofür, auf Empfehlung der Tierärztin"></textarea>
       </label>
       <p id="medError" class="form-error" hidden></p>
       <div class="form-actions">
@@ -248,9 +248,9 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
-  <script src="config.js?v=8"></script>
-  <script src="meds.js?v=8"></script>
-  <script src="pdf-export.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="config.js?v=9"></script>
+  <script src="meds.js?v=9"></script>
+  <script src="pdf-export.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

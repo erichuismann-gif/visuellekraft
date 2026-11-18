@@ -260,10 +260,19 @@ const YlviPdf = (() => {
       const rel = [...atStart, ...within];
       if (rel.length) {
         sectionTitle('Medikation', within.length ? 'Dosisänderungen sind in der Zeitleiste orange markiert' : '');
+        const multi = YlviMeds.names(meds).length > 1;
+        const codes = YlviMeds.codes(meds);
         table(
-          [['Ab', 26], ['Medikament', 32], ['Dosis', 22], ['Hinweis', CONTENT_W - 80]],
-          rel.map((m) => [m.start ? fmtDate(YlviMeds.keyToDate(m.start)) : 'vorher', m.name, YlviMeds.fmtDose(m.dose), m.note || '']),
-          { boldCol: 2 }
+          multi
+            ? [['Ab', 24], ['Medikament', 28], ['Kürzel', 15], ['Dosis', 20], ['Hinweis', CONTENT_W - 87]]
+            : [['Ab', 26], ['Medikament', 32], ['Dosis', 22], ['Hinweis', CONTENT_W - 80]],
+          rel.map((m) => {
+            const when = m.start ? fmtDate(YlviMeds.keyToDate(m.start)) : 'vorher';
+            return multi
+              ? [when, m.name, codes.get(m.name), YlviMeds.fmtDose(m.dose), m.note || '']
+              : [when, m.name, YlviMeds.fmtDose(m.dose), m.note || ''];
+          }),
+          { boldCol: multi ? 3 : 2 }
         );
         y += 2;
 
@@ -275,7 +284,7 @@ const YlviPdf = (() => {
             [['Dosis', 34], ['Zeitraum', 36], ['Tage', 12, 'right'], ['Pipi', 12, 'right'], ['Ø Pipi/Tag', 20, 'right'],
               ['Versuche', 17, 'right'], ['Ø Vers./Tag', 21, 'right'], ['', 4], ['Längste Pause', CONTENT_W - 156]],
             cmp.map((p) => [
-              YlviMeds.label(meds, p.doses, { long: true }) || 'ohne',
+              YlviMeds.compact(meds, p.doses) || 'ohne',
               `${fmtDateShort(p.from)} – ${fmtDate(addDays(p.to, -1))}`,
               String(p.days), String(p.count), fmtNum(p.avg),
               String(p.attempts), fmtNum(p.avgAttempts), '',
@@ -344,7 +353,7 @@ const YlviPdf = (() => {
         const future = day.getTime() > now;
         const by = y + 1;
         const changed = meds.length && YlviMeds.changesOn(meds, day).length > 0;
-        const dl = meds.length ? YlviMeds.label(meds, YlviMeds.doseOn(meds, day)) : '';
+        const dl = meds.length ? YlviMeds.compact(meds, YlviMeds.doseOn(meds, day)) : '';
 
         if (changed) {
           // Akzentlinie über dem Tag der Dosisänderung

@@ -8,7 +8,7 @@ Mehrere Personen melden sich an und sehen dieselben Einträge. Neue Einträge er
 - **Pipi eintragen**: Uhrzeit (vorausgefüllt mit „jetzt“), optionale Notiz (z. B. Menge, Blut, Pressen) und Beweisfoto per Kamera oder Galerie
 - **Verlauf**: alle Pipi-Einträge nach Tagen, mit Vorschaubild; Dosisänderungen erscheinen direkt im Verlauf
 - **Wochenplan**: pro Tag eine 24-Stunden-Zeitleiste und die an dem Tag gültige Dosis; Tage mit Dosisänderung sind hervorgehoben
-- **Medikation**: Dosisänderungen eintragen (z. B. Fluoxetin 5 mg → 2,5 mg), Verlauf der Medikation und Vergleich „Ø Pipi pro Tag je Dosis“
+- **Medikation**: mehrere Medikamente (z. B. Fluoxetin und Alfuzosin), je Medikament Dosisänderungen eintragen oder absetzen (0 mg), Verlauf der Medikation und Vergleich „Ø Pipi pro Tag je Dosis-Kombination“
 - **PDF für den Tierarzt** (im Wochenplan): Wochenübersicht über frei wählbar viele Wochen, mit Medikation, Vergleich je Dosis, Zusammenfassung, optional Notizen-Liste und Beweisfotos. Auf dem Handy direkt teilbar.
 - **Status oben**: wie lange das letzte Pipi her ist und die aktuelle Dosis
 - **Gemeinsam & live** (mit Datenbank): Trägt eine Person etwas ein, sieht die andere es sofort
